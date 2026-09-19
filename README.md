@@ -4,7 +4,7 @@
 
 감정지도는 관심 지역의 경험을 취향에 맞춰 하루 한 편 받아보는 장소 기반 서비스입니다. 이 저장소는 백엔드 코드와 FE·BE·AI가 함께 검토할 기획·설계·API 계약을 관리합니다.
 
-**현재는 최신 ERD의 영속성 모델과 기존 API 호출부를 전환한 단계입니다.** UUID·필수 4축·취향 이력·수신/좋아요·이미지 소유권을 사용하며 업무 API는 모두 `/v1/...`입니다. 정기 배달·AI 등 전체 MVP 구현 완료를 뜻하지 않습니다. 실행 시 생성되는 Swagger가 실제 제공 API의 기준입니다.
+**현재는 최신 ERD 영속성 모델과 일부 기존 호출부를 전환한 단계입니다.** UUID·필수 4축·취향 이력·수신/좋아요·이미지 소유권을 사용하며 업무 API는 모두 `/v1/...`입니다. 이미지 업로드에는 영속 요청 소유권·재생과 파일 수명 경계가 추가됐지만, 정기 배달·AI 등 전체 MVP 구현 완료를 뜻하지 않습니다. 실행 시 생성되는 Swagger가 실제 제공 API의 기준입니다.
 
 ## 문서 안내
 
@@ -61,7 +61,7 @@
 
 ## 데이터 설계 방향
 
-[ERD](./docs/ERD.md)의 **10개 기본 도메인 테이블**에 `image_uploads`를 추가한 11개 테이블을 사용합니다. 모든 경험·계정 식별자는 UUID이며 카테고리는 고정 smallint, 일부 관계는 복합키입니다.
+[ERD](./docs/ERD.md)의 **10개 기본 도메인 테이블**에 `image_uploads`와 `image_storage_binding`을 더한 스키마를 사용합니다. 모든 경험·계정 식별자는 UUID이며 카테고리는 고정 smallint, 일부 관계는 복합키입니다.
 
 | 책임 | 테이블 |
 | --- | --- |
@@ -72,12 +72,13 @@
 | 일일 작업·실제 수신 | `daily_selections`, `letter_deliveries` |
 | 신고·운영 처리 | `reports` |
 | 업로드 소유권·첨부 | `image_uploads` |
+| 이미지 root 소유권 | `image_storage_binding` |
 
 - UUID 식별자와 필수 4축 컬럼을 사용하고, 취향은 덮어쓰기 대신 불변 버전으로 보존합니다.
 - 일일 작업과 실제 배달을 분리해 후보 없음·실패·성공을 구분합니다. 사용자·날짜별 작업, 날짜별 배달, 같은 원문의 재수신 금지는 각각 별도 제약입니다.
 - 좋아요는 `letter_deliveries.liked_at`으로 관리합니다. 별도 Reaction·Bookmark·원문-사본 연결 테이블은 없습니다.
 - 일반 삭제는 소프트 삭제이며 FK는 `RESTRICT`입니다. 원문 삭제가 수신 이력이나 독립 PRIVATE를 함께 삭제하지 않습니다.
-- 자격증명은 계정과 분리하고 신고에는 `details`를 저장합니다. 범용 요청 멱등성 저장소는 아직 구현하지 않았습니다.
+- 자격증명은 계정과 분리하고 신고에는 `details`를 저장합니다. 이미지 업로드의 요청 키는 소유자·경로·UUID 키·요청 지문으로 영속 조정하며 응답 본문을 캐시하지 않습니다. 메모리·신고의 전체 재생 계약은 이 범위에서 완료로 주장하지 않습니다.
 
 **기존 데이터 자동 이관은 지원하지 않습니다.** V1은 그대로 유지하고 V2에서 구형 6개 테이블이 모두 빈 경우에만 전환합니다. 데이터가 있으면 삭제하지 않고 마이그레이션을 중단합니다. 별도 빈 개발 DB를 준비하세요. V3는 자체 카테고리 8종을 초기화합니다.
 
@@ -105,9 +106,9 @@
 - 로그인은 이메일·비밀번호만 지원합니다. 공개 회원가입·비밀번호 재설정·소셜 로그인은 제공하지 않습니다. 최초 USER 자격증명은 [내부 계정 공급 CLI](./ARCHITECTURE.md#71-최초-계정-공급)로 생성하며, 실제 참여자 승인과 개인별 비밀 전달은 별도 운영 절차입니다.
 - 로그인만 무인증이며 다른 참여자 API는 Bearer 토큰과 ACTIVE 초대 계정을 요구합니다. 온보딩 전 허용 경로는 명세서에서 별도로 정의합니다.
 - 식별자는 UUID 문자열, `preferenceVersion`은 10진 문자열입니다. 목록 응답은 `{items, pageInfo}`, 공통 오류는 `code`를 기준으로 처리합니다.
-- 직접 경험 생성·이미지 업로드·신고에는 `Idempotency-Key`, 취향 변경에는 `expectedPreferenceVersion`, 분석 결과 검증에는 `analysisToken`을 제안합니다.
+- 이미지 업로드는 단 하나의 UUID `Idempotency-Key`를 요구합니다. 같은 소유자·동일 원본 바이트의 완료 요청은 저장된 영수증을 재생하고, 새 저장은 `201`, 재생은 `200`입니다. 다른 경로·다른 원본·다른 사용자의 일반 멱등성 계약을 이 설명으로 확대하지 않습니다.
 - 좋아요는 범용 응답 캐시와 구분합니다. 최초 성공에서만 사본 ID를 반환하고, 중복은 `200 ALREADY_COPIED`와 사본 ID `null`로 응답하는 안입니다.
-- 이미지는 선행 업로드한 `imageId`를 경험에 첨부합니다. 조회는 Bearer 인증으로 바이너리를 받아 Blob으로 표시하며 토큰을 URL에 넣지 않습니다.
+- 이미지는 선행 업로드한 `imageId`를 경험에 첨부합니다. 이미지 영수증은 STAGED의 미만료 상태와 ATTACHED를 재생할 수 있고, 만료된 STAGED/EXPIRED는 `410 IMAGE_UPLOAD_EXPIRED`입니다. 경험 조회는 Bearer 인증·경험 접근 검사를 먼저 통과한 뒤 바이너리 스트림을 받으며 토큰·storage key를 URL에 넣지 않습니다.
 
 반경·토큰 TTL·입력 길이·파일 크기·페이지 제한 등의 **예시 숫자는 운영 확정값이 아닙니다.** 인증 저장·제한, AI 모델·서명 계약, 파일 수명·실패 복구, 운영 도구는 [API 명세서](./docs/API_SPEC.md)의 합의 항목을 확인합니다.
 
@@ -119,9 +120,9 @@
 | 계정 | 이메일·비밀번호 로그인, DB 영속 로그인 제한, 안전한 내부 USER 공급 CLI, ACTIVE 계정·온보딩 Guard, 위치 최초 설정, 취향 버전 변경 |
 | 경험·장소 | 수동 4축·카테고리 저장, 신규 핀/가시 핀 재사용, 권한 기반 조회, 소프트 삭제 |
 | 수신·좋아요 | 기존 수신 목록·최초 읽음, 독립 PRIVATE·분류·파일 복사와 일회성 좋아요 |
-| 이미지·신고 | 본인 임시 업로드만 첨부, Bearer 경험 이미지 조회, 열람 가능한 경험 신고 |
+| 이미지·신고 | 이미지 단일 multipart·영속 요청 키/영수증 재생, 본인 임시 업로드 첨부, 접근 검사 뒤의 경험 이미지 스트림, 열람 가능한 경험 신고 |
 
-정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·요청 멱등성·공개 운영 도구는 아직 완성하지 않았습니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
+정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·메모리·신고의 전체 요청 멱등성·공개 운영 도구는 아직 완성하지 않았습니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
 
 직접 생성은 명시적 수동 입력만 지원하며 분류 상태는 `NOT_RUN`, 출처는 `USER`입니다. 안전 검사는 `PENDING`, `available_at`은 NULL이므로 새 LETTER를 자동 승인·배달하지 않습니다. 유효성을 확인할 AI 어댑터가 없는 `analysisToken`은 거절합니다.
 
@@ -179,14 +180,30 @@ DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `ps
 
 **개발 시드 자동 실행 중단:** 기본 `local` 부팅도 공통 `classpath:db/migration`만 사용합니다. `db/seed/R__seed_dev_data.sql`은 원본 보존용이며 현재 실행 절차가 아닙니다(파일 내부의 local 자동 실행 설명도 과거 기준입니다). 공통 비밀번호·운영자 계정 생성, 기존 데이터 삭제 및 현행 제약과 맞지 않는 값을 포함하므로 직접 실행하거나 Flyway 경로에 다시 추가하지 마세요. 새 환경에는 V3의 고정 카테고리 8개만 초기화되며, 로그인 계정·자격증명은 별도의 안전한 내부 절차로 준비해야 합니다.
 
-이미 이 repeatable의 적용 이력이 있는 DB는 현재 Flyway 기본 검증에서 스크립트 누락으로 부팅이 중단될 수 있습니다. 이 변경은 기존 데이터·적용 이력을 삭제하거나 자동 복구하지 않습니다. 오류를 우회하려고 `repair`/`clean`, 이력 삭제, 검증 비활성화·누락 무시 설정 또는 시드 재실행을 하지 마세요. 기존 DB는 보존하고, 개발 재개에는 별도의 빈 개발 DB만 사용하세요. 이 변경은 DB 생성·초기화·정리 같은 자동 DB 작업을 수행하지 않습니다.
+이미 이 repeatable의 적용 이력이 있는 DB는 현재 Flyway 기본 검증에서 스크립트 누락으로 부팅이 중단될 수 있습니다. 이 변경은 기존 데이터·적용 이력을 삭제하거나 자동 복구하지 않습니다. 오류를 우회하려고 `repair`/`clean`/reset/버전 down, 이력 삭제, 검증 비활성화·누락 무시 설정 또는 시드 재실행을 하지 마세요. 기존 DB는 보존하고, 개발 재개에는 별도의 빈 개발 DB만 사용하세요. 이 변경은 DB 생성·초기화·정리 같은 자동 DB 작업을 수행하지 않습니다.
 
 - DB 연결: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 기본 로컬 설정을 변경합니다.
 - 프로필: `SPRING_PROFILES_ACTIVE=local|ci|prod`. `ci`는 DB 없는 테스트용이지 독립적인 앱 부팅용이 아닙니다.
-- JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 경로는 `APP_UPLOAD_DIR`로 설정합니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
+- JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 root는 `APP_UPLOAD_DIR`로 설정합니다. 이미지 요청 lease는 양수 ISO-8601 `Duration`인 `REQUEST_COORDINATION_LEASE_DURATION`, 정리 주기는 양수 ISO-8601 `Duration`인 `IMAGE_CLEANUP_INTERVAL`, 정리 배치는 양의 정수 `IMAGE_CLEANUP_BATCH_SIZE`로 각각 명시합니다. 이 값들에는 운영 기본값이 없으며 누락·무효면 새 이미지 쓰기/새 요청 선점 또는 정리가 보존 방향으로 닫힙니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
 - 토큰 TTL은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS` 하나로 설정합니다. 브라우저 origin은 `CORS_ALLOWED_ORIGINS`의 정확한 allowlist로 지정하며 운영 FE 주소를 추측해 허용하지 않습니다.
 - prod는 실제 AI provider와 분석·안전 검사·동률 평가 구현이 없으면 기동을 거부합니다. 현재 mock 구현만으로 운영 준비가 완료되었다고 판단하지 않습니다.
 - 실행 후 [Swagger UI](http://localhost:8080/swagger-ui.html)와 [현재 OpenAPI JSON](http://localhost:8080/v3/api-docs)을 확인할 수 있습니다. 최신 계약 YAML이 자동으로 서버에 적용되는 것은 아닙니다.
+
+### 이미지 저장소 초기화와 복구 경계
+
+일반 부팅은 `image_storage_binding`이 UNBOUND이면 root를 만들거나 claim하지 않으며 파일 생성·독립 복사·만료·정리를 허용하지 않습니다. 권한을 확인한 이미지 읽기도 binding·marker·현재 DB/schema locator가 일치하지 않으면 파일을 열지 않고 `503 IMAGE_FILE_UNAVAILABLE`로 닫습니다.
+
+새 빈 dataset과 새 전용 빈 root만 다음 내부 subcommand로 명시적으로 연결합니다. 먼저 현재 Flyway를 **승인한 대상 DB**에 적용하고, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SCHEMA`를 명시합니다. `--expected-database`와 `--expected-schema`는 그 실제 연결의 DB·schema와 일치해야 하며, `--expected-dataset-id`는 V9이 만든 UUID입니다.
+
+```bash
+java -jar build/libs/emotion-map-0.0.1-SNAPSHOT.jar storage-init-empty \
+  --root /approved/new-empty-image-root \
+  --expected-dataset-id <v9-dataset-uuid> \
+  --expected-database <database-name> \
+  --expected-schema <schema-name>
+```
+
+이 명령은 이미지 업로드 행과 모든 `memories.image_path` 참조가 없고, root에 이 시도가 만든 lock 파일 외 다른 항목이 없을 때만 marker와 DB binding을 기록합니다. 종료 코드는 성공 `0`, 잘못된 인자 또는 안전 전제 거절 `2`, DB·파일 의존성 실패 `1`입니다. 기존 root·legacy 데이터·복원본은 자동 adopt·삭제·reset하지 않습니다. 이미지가 있는 dataset의 복구/재결합은 DB와 파일 백업의 연관성을 보존하는 별도 승인 절차이며 이 CLI 대상이 아닙니다. clone은 copied dataset UUID만으로 root를 쓸 수 없고, locator가 달라지면 거절됩니다. locator까지 동일한 in-place physical restore는 코드만으로 일반 재시작과 구분할 수 없으므로 운영자가 writer/collector를 중지하고 백업 일관성을 관리해야 합니다.
 
 DB 제약 회귀 검증은 전체 마이그레이션이 적용된 **별도 테스트 DB**에서 실행합니다. 합성 fixture는 트랜잭션 끝에 롤백됩니다.
 

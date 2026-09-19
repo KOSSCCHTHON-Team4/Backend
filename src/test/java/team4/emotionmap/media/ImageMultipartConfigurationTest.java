@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -25,11 +26,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
+import org.mockito.Mockito;
+import team4.emotionmap.contracts.request.RequestCoordinator;
+import team4.emotionmap.media.dto.ImageUploadResponse;
 import team4.emotionmap.catalog.CatalogController;
 import team4.emotionmap.catalog.ServiceConfigProperties;
 import team4.emotionmap.catalog.ServiceConfigProvider;
@@ -51,8 +50,7 @@ import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Runs real multipart request bodies through an embedded servlet server. The probe controller exists only to
- * demonstrate that a configured part reaches Spring MVC; it does not stand in for image persistence.
+ * Runs real multipart request bodies through an embedded servlet server and the image controller.
  */
 @SpringBootTest(
         classes = ImageMultipartConfigurationTest.NormalServletApplication.class,
@@ -86,7 +84,7 @@ class ImageMultipartConfigurationTest extends EmbeddedMultipartHttpAssertions {
 
         HttpResponse<String> accepted = postAuthenticatedImage(new byte[]{1}, token);
         assertThat(accepted.statusCode()).isEqualTo(HttpStatus.CREATED.value());
-        assertThat(accepted.body()).isEqualTo("parsed:1");
+        assertThat(accepted.body()).contains("\"sizeBytes\":1");
     }
 
     @SpringBootConfiguration
@@ -104,7 +102,8 @@ class ImageMultipartConfigurationTest extends EmbeddedMultipartHttpAssertions {
 
         @Bean
         StorageProperties storageProperties() {
-            return new StorageProperties("test-only-unused-storage", TEST_MULTIPART_OVERHEAD_BYTES);
+            return new StorageProperties("test-only-unused-storage", TEST_MULTIPART_OVERHEAD_BYTES,
+                    Duration.ofMinutes(1), 10);
         }
     }
 }
@@ -139,7 +138,8 @@ class ImageMultipartConfigurationMissingServiceConfigTest extends EmbeddedMultip
 
         @Bean
         StorageProperties storageProperties() {
-            return new StorageProperties("test-only-unused-storage", TEST_MULTIPART_OVERHEAD_BYTES);
+            return new StorageProperties("test-only-unused-storage", TEST_MULTIPART_OVERHEAD_BYTES,
+                    Duration.ofMinutes(1), 10);
         }
     }
 }
@@ -173,7 +173,7 @@ class ImageMultipartConfigurationMissingOverheadTest extends EmbeddedMultipartHt
 
         @Bean
         StorageProperties storageProperties() {
-            return new StorageProperties("test-only-unused-storage", null);
+            return new StorageProperties("test-only-unused-storage", null, Duration.ofMinutes(1), 10);
         }
     }
 }
@@ -207,7 +207,8 @@ class ImageMultipartConfigurationOverflowingOverheadTest extends EmbeddedMultipa
 
         @Bean
         StorageProperties storageProperties() {
-            return new StorageProperties("test-only-unused-storage", Long.MAX_VALUE);
+            return new StorageProperties("test-only-unused-storage", Long.MAX_VALUE,
+                    Duration.ofMinutes(1), 10);
         }
     }
 }
@@ -273,6 +274,7 @@ abstract class EmbeddedMultipartHttpAssertions {
     private HttpRequest.Builder imageRequest(byte[] bytes) {
         String boundary = "----emotionmap-" + UUID.randomUUID();
         return HttpRequest.newBuilder(endpoint("/v1/images"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .header("Content-Type", MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody(bytes, boundary)));
     }
@@ -304,9 +306,19 @@ abstract class EmbeddedMultipartHttpAssertions {
             "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration",
             "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
     })
-    @Import({JwtTokenProvider.class, SecurityConfig.class, ImageMultipartConfiguration.class, ApiErrorWriter.class,
-            GlobalExceptionHandler.class, CatalogController.class, MultipartProbeController.class})
+    @Import({JwtTokenProvider.class, SecurityConfig.class, ImageMultipartConfiguration.class, ImageController.class,
+            ApiErrorWriter.class, GlobalExceptionHandler.class, CatalogController.class})
     static class ServletComponents {
+        @Bean
+        ImageUploadService imageUploadService() {
+            ImageUploadService service = Mockito.mock(ImageUploadService.class);
+            Mockito.when(service.upload(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(
+                    new ImageUploadService.UploadResult(
+                            new ImageUploadResponse(UUID.randomUUID(), TEST_NOW.plusSeconds(300),
+                                    "image/jpeg", 1, 1, 1),
+                            RequestCoordinator.CompletionKind.CREATED));
+            return service;
+        }
 
         @Bean
         Clock clock() {
@@ -331,15 +343,6 @@ abstract class EmbeddedMultipartHttpAssertions {
         @Bean
         JsonMapper jsonMapper() {
             return StrictJson.mapper();
-        }
-    }
-
-    @RestController
-    static class MultipartProbeController {
-
-        @PostMapping(value = "/v1/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-        ResponseEntity<String> upload(@RequestParam("file") MultipartFile file) {
-            return ResponseEntity.status(HttpStatus.CREATED).body("parsed:" + file.getSize());
         }
     }
 }

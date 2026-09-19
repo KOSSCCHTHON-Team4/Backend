@@ -5,7 +5,7 @@
 - 기준: 최종 MVP 기획서 **1.4-final**, **ERD 1.0**, 사용자가 이 대화에 전달한 **FE API 요청 v2** 및 **이메일·비밀번호 로그인만 구현한다는 최신 확정**
 - 대상: FE 2명 · BE 2명 · AI 1명, 기존 19시간 MVP
 - 결과물: 이 문서, `openapi.yaml`(OpenAPI 3.1.0), TypeScript 타입, JSON mock 예시, 검증 시나리오
-- 상태: **전체 제품 계약은 검토·합의용 초안**. 현재 구현 표시는 해당 기능에 한정한다. 이미지 업로드와 영속 로그인 제한·내부 계정 공급은 패키지 앱·전용 합성 PostgreSQL·파일·HTTP로 검증했으며, 전체 API·실제 AI·운영 연동 완료를 뜻하지 않는다.
+- 상태: **전체 제품 계약은 검토·합의용 초안**이다. 다만 L03의 이미지 업로드·수명주기 primitive와 해당 HTTP 경로는 현재 구현 범위이며, 이 표시는 전체 API·실제 AI·운영 연동 완료를 뜻하지 않는다. 영속 로그인 제한·내부 계정 공급도 패키지 앱·전용 합성 PostgreSQL·파일·HTTP로 검증한 범위에 한정한다.
 - 운영 DB·실제 고객 데이터는 이 검증에서 수정하거나 사용하지 않았다.
 
 > **자료 접근 범위:** ERD 상세 문서와 첨부 패키지의 SQL을 확인했다. `KOSSCCHTHON-Team4/Frontend`의 `docs/필요api.md`를 연결 도구로 읽으려 했으나 HTTP 404가 반환되었다. 따라서 FE 기준은 사용자가 붙여 넣은 v2 전문이며, 실제 `src/api/`·화면·Zod 구현을 확인했다고 주장하지 않는다. 404만으로 저장소가 존재하지 않는다고 단정하지 않는다.
@@ -51,7 +51,7 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 | `/v1/config` | [계약 제안] 추가 | 반경·지도 초기 중심·배달 시각·제한을 서버 설정으로 제공. 사용자별 선택값 아님 |
 | `preference_version` 응답 | [계약 제안] 채택 | JSON은 `preferenceVersion` 10진 문자열. PATCH에 `expectedPreferenceVersion` 추가 |
 | 분석 결과 | [계약 제안] FE 필드 유지+보완 | `analysisToken`, `expiresAt`, `atmosphereStatus`, `warnings` 추가. 출처 위조 방지 |
-| `imageId` 선행 업로드 | [계약 제안] 채택 | **기존 10테이블에는 업로드 대기 자원이 없음**. `image_uploads` 등 메타데이터 필요 |
+| `imageId` 선행 업로드 | [L03 구현 primitive] | `image_uploads` 메타데이터와 `POST /v1/images`의 업로드·만료·첨부 경계만 현재 구현한다. 그 밖의 제품 계약은 아래 초안 상태를 유지 |
 | 생성 실패 후 재요청 | [계약 제안] 보완 | 직접 생성/업로드/신고에 `Idempotency-Key`. 키 저장소 필요, 좋아요에는 적용하지 않음 |
 | 오늘 상태 5종 | [계약 제안] 유지 | `pendingReason`, `errorReason`, 날짜·예정 시각 추가. 내부 enum과 외부 enum 분리 |
 | 삭제된 오늘의 편지 | [계약 제안] tombstone | `DELIVERED` 유지+`availability=UNAVAILABLE`. 0개로 바꾸거나 재배달하지 않음 |
@@ -215,15 +215,17 @@ FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신�
 
 ### 4.3 선행 이미지 업로드
 
-`POST /v1/images → imageId → POST /v1/memories`에는 기존 ERD에 없는 **미첨부 업로드 상태**가 필요하다. 로컬 파일 저장은 유지한다.
+**L03 구현 primitive:** `POST /v1/images → imageId → POST /v1/memories`는 기존 ERD의 기본 10테이블 밖에서 `image_uploads`로 미첨부 업로드를 관리한다. 이 구현 범위는 이미지 HTTP와 그 수명주기 경계이며, 이 장의 나머지 제품·AI·운영 계약을 구현 완료로 바꾸지 않는다.
 
-추가 메타데이터의 제안은 `image_uploads(id, owner_id, storage_path, media_type, size_bytes, width, height, status, expires_at, attached_memory_id, created_at)`다. STAGED/ATTACHED/EXPIRED를 구분하고 서버가 생성한 임의 파일명을 사용한다.
+`image_uploads(id, owner_id, storage_path, media_type, size_bytes, width, height, status, expires_at, attached_memory_id, created_at)`는 STAGED/ATTACHED/EXPIRED를 구분하고 서버 생성 파일명만 저장한다. 최초 업로드는 `201`을 반환한다. 같은 사용자·메서드·경로·`Idempotency-Key`와 같은 원본 파일 바이트의 완료 재전송은 새 파일이나 행을 만들지 않고, 최초 `ImageUploadResponse` 접수증을 그대로 `200`으로 반환한다. 같은 키의 다른 요청은 `409`다.
 
-경험에 첨부할 때 본인 소유·미만료·미사용 여부를 확인하고 경험 생성과 ATTACHED 전환을 같은 트랜잭션으로 처리한다. 같은 imageId를 두 경험에 재사용하지 않는다. 임시 TTL 정리 대상은 미첨부 파일이며, ATTACHED 파일을 만료 처리로 지워서는 안 된다. 업로드 직후의 미리보기는 FE가 원래 선택한 Blob으로 처리한다.
+경험 첨부는 본인 소유·미만료·미사용 imageId를 잠그고 경험 생성과 ATTACHED 전환을 같은 트랜잭션으로 확정한다. 같은 imageId를 두 경험에 재사용하지 않는다. `expires_at`을 지난 STAGED는 바인딩할 수 없고 `410 IMAGE_UPLOAD_EXPIRED`다. 만료 처리의 논리 단계는 STAGED 행을 `EXPIRED`로 전환하면서 `storage_path=NULL`을 커밋하는 tombstone이며, ATTACHED를 만료 처리로 지우지 않는다. 업로드 직후 미리보기는 FE가 원래 선택한 Blob으로 처리한다.
 
-서버에서도 실제 파일 디코딩, 형식·바이트·폭·높이·픽셀 수 검사와 재인코딩·EXIF 제거를 수행하도록 권고한다. 확장자나 클라이언트 MIME만 신뢰하지 않고, FE의 EXIF 제거가 서버 검증을 대체하지 않는다. [W4]
+만료 선택은 PostgreSQL `(expires_at, id)` 순서의 bounded keyset continuation으로 진행한다. 메모리 참조 때문에 보존해야 하는 due STAGED 행은 건너뛰되 뒤의 due 후보를 계속 선택할 수 있어야 한다. continuation은 성공한 tombstone 트랜잭션 뒤에만 전진하고 한 순회를 모두 소비하면 다시 처음부터 순회한다. 만료와 첨부는 같은 STAGED 행을 `SKIP LOCKED`로 조정하고 최종 상태를 다시 확인한다. tombstone 커밋 뒤의 물리 삭제는 별도 단계이며, 그때도 모든 상태의 메모리 참조, 활성 저장소 root binding, DB fence와 OS file fence를 다시 확인한다. 이 계약은 임의 고아 파일의 무기한 churn에서도 모두 결국 수거된다는 보장이나 같은 locator의 물리 복원이 항상 식별된다는 보장을 하지 않는다.
 
-파일과 DB는 자동으로 함께 롤백되지 않으므로 실패·프로세스 중단 이후의 파일 정리가 필요하다. 업로드 실패를 사진 없는 성공으로 바꾸지 않는다. 반대로 사용자가 사진을 첨부하지 않은 imageId=null은 정상이다.
+이미지 업무 한도·STAGED TTL과 수명주기 정리에 필요한 설정은 명시된 필수 운영 설정이며 임의 기본값으로 대체하지 않는다. 하나라도 없거나 유효하지 않으면 신규 이미지 쓰기는 `503 CONFIGURATION_UNAVAILABLE`로 fail-closed하고, 이미 저장된 이미지의 권한 있는 읽기는 계속 가능해야 한다. 서버는 실제 파일 디코딩, 형식·바이트·폭·높이·픽셀 수 검사와 재인코딩·EXIF 제거를 수행한다. 확장자나 클라이언트 MIME만 신뢰하지 않고, FE의 EXIF 제거가 서버 검증을 대체하지 않는다. [W4]
+
+파일과 DB는 자동으로 함께 롤백되지 않는다. 저장 또는 독립 복사 중 부분적으로 만든 파일과 확실한 트랜잭션 롤백의 파일만 즉시 정리하고, 커밋 또는 결과 미상 파일은 보존한다. 업로드 실패를 사진 없는 성공으로 바꾸지 않는다. 반대로 사용자가 사진을 첨부하지 않은 imageId=null은 정상이다.
 
 ### 4.4 Bearer로 보호된 이미지 표시
 
@@ -917,10 +919,13 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 ### 8.10 `POST /v1/images`
 
-**JPEG/PNG1장 선행 업로드** · operationId: `uploadImage` · 성공 `201`
+**JPEG/PNG1장 선행 업로드** · operationId: `uploadImage` · 최초 성공 `201`, 완료 재전송 `200`
 
-file 파트 하나. 서버는 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 영속 로컬 파일과 업로드 메타데이터로 준비한 뒤201을 반환한다. imageId는 사용자 귀속 임시 자원, 외부 경로가 아니다. 확실한 롤백의 새 파일만 정리하며 ATTACHED 파일·커밋 또는 결과 미상 파일을 지우지 않는다. 별도 공개 업로드 조회 API와 만료 파일의 주기적 정리는 없다.
-**처리 순서와 503 우선순위:** Security 인증·계정 guard → 설정/전송 gate → servlet multipart parser → 실제 입력의 bounded read → JPEG/PNG sanitizer → 파일 저장·STAGED 행이다. gate는 `POST /v1/images`의 REQUEST dispatch에만 적용하고 본문·파라미터·part를 읽지 않는다. 따라서 무인증·무효 토큰 요청은 설정과 관계없이 먼저 기존 401이고, 유효한 인증 뒤 서비스 설정이 없거나 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`가 없거나 양수가 아니거나 `B + H`가 넘치면 parser보다 먼저 `CONFIGURATION_UNAVAILABLE`(503)이다. 서비스 설정은 정상이고 전송 설정만 잘못된 경우 `/v1/config`는 정상 응답을 유지하며 업로드만 503이다. gate를 통과한 뒤에만 파일/요청 한도 413, 형식 415, 손상·빈 파일·치수 422가 적용된다. 파일 저장 I/O 503은 `IMAGE_STORAGE_UNAVAILABLE`이며 경로·원인 예외를 포함하지 않는다.
+file 파트 하나. 서버는 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 영속 로컬 파일과 STAGED 업로드 메타데이터로 준비한다. imageId는 사용자 귀속 임시 자원이며 외부 경로가 아니다. 최초 성공은201이고, 같은 `Idempotency-Key`의 완료 재전송은 새 객체를 만들지 않고 최초 `ImageUploadResponse` 접수증을 안정적으로200으로 반환한다. STAGED가 만료되면 바인딩은410 `IMAGE_UPLOAD_EXPIRED`다.
+
+만료 수명주기는 due STAGED를 `(expires_at, id)` bounded keyset으로 선택해, 참조 때문에 보존한 행이 뒤 후보를 영구히 막지 않게 한다. continuation은 성공한 tombstone 트랜잭션 뒤에만 전진하고 순회를 소비하면 다시 처음부터 시작한다. 만료와 첨부는 동일 STAGED 행을 `SKIP LOCKED`로 조정하고 최종 상태를 재확인한다. 만료의 먼저 커밋되는 결과는 `EXPIRED`와 `storage_path=NULL` tombstone이다. 물리 파일 삭제는 이후 별도 GC에서 모든 상태의 메모리 참조·저장소 root binding·DB 및 OS file fence를 다시 확인한 뒤에만 수행한다. 이 절은 모든 임의 orphan의 eventual GC나 동일 locator의 물리 restore를 식별한다는 보장을 추가하지 않는다.
+
+**처리 순서와 503 우선순위:** Security 인증·계정 guard → 설정/전송 gate → servlet multipart parser → 실제 입력의 bounded read → 원본 바이트 fingerprint·claim·완료 replay 판정 → 신규 owner만 JPEG/PNG sanitizer → 파일 저장·STAGED 행이다. 완료 replay는 sanitizer와 현재 치수·픽셀 제한을 다시 적용하지 않고 최초 접수증을 반환한다. gate는 `POST /v1/images`의 REQUEST dispatch에만 적용하고 본문·파라미터·part를 읽지 않는다. 따라서 무인증·무효 토큰 요청은 설정과 관계없이 먼저 기존 401이다. 유효한 인증 뒤 서비스 설정, 양수 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`, 또는 수명주기 정리에 필요한 필수 설정이 없거나 유효하지 않거나 `B + H`가 넘치면 parser보다 먼저 `CONFIGURATION_UNAVAILABLE`(503)으로 신규 쓰기를 닫으며 임의 기본값을 쓰지 않는다. 이 상태도 이미 저장된 이미지의 권한 있는 읽기를 막지 않는다. 서비스 설정은 정상이고 전송 설정만 잘못된 경우 `/v1/config`는 정상 응답을 유지하며 업로드만 503이다. gate를 통과한 뒤에만 파일/요청 한도 413, 형식 415, 손상·빈 파일·치수 422가 적용된다. 파일 저장 I/O 503은 `IMAGE_STORAGE_UNAVAILABLE`이며 경로·원인 예외를 포함하지 않는다.
 
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|

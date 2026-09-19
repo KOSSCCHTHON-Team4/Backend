@@ -1,6 +1,7 @@
 package team4.emotionmap.memory;
 
 import java.time.Clock;
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -33,10 +34,9 @@ import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.contracts.memory.ModerationStatus;
 import team4.emotionmap.contracts.memory.OriginKind;
 import team4.emotionmap.contracts.validation.TextRules;
-import team4.emotionmap.media.ImageStorageService;
+import team4.emotionmap.contracts.media.LocalImageStore;
 import team4.emotionmap.media.ImageUpload;
 import team4.emotionmap.media.ImageUploadService;
-import team4.emotionmap.media.StoredImage;
 import team4.emotionmap.memory.analysis.AnalysisReceipt;
 import team4.emotionmap.memory.analysis.AnalysisReceiptCodec;
 import team4.emotionmap.memory.analysis.AxisSourceResolver;
@@ -70,7 +70,7 @@ public class MemoryService {
     private final PlaceRepository placeRepository;
     private final PlaceCategoryRepository placeCategoryRepository;
     private final ImageUploadService imageUploadService;
-    private final ImageStorageService imageStorageService;
+    private final LocalImageStore localImageStore;
     private final AnalysisReceiptCodec receiptCodec;
     private final PlaceProfileService placeProfileService;
     private final ServiceConfigSource serviceConfig;
@@ -187,13 +187,25 @@ public class MemoryService {
         return visible;
     }
 
-    @Transactional(readOnly = true)
-    public StoredImage image(UUID userId, UUID memoryId) {
+    public ImageContent image(UUID userId, UUID memoryId) {
         Memory memory = memoryAccessService.requireReadable(userId, memoryId);
         if (memory.getImagePath() == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory has no image");
+            throw ContractError.of(ErrorCode.RESOURCE_NOT_FOUND);
         }
-        return imageStorageService.load(memory.getImagePath());
+        String mediaType = memory.getImageMediaType();
+        long sizeBytes = memory.getImageSizeBytes();
+        try {
+            InputStream content = localImageStore.open(memory.getImagePath());
+            return new ImageContent(content, mediaType, sizeBytes);
+        } catch (ContractError error) {
+            if (error.code() == ErrorCode.RESOURCE_NOT_FOUND) {
+                throw ContractError.of(ErrorCode.IMAGE_FILE_UNAVAILABLE);
+            }
+            throw error;
+        }
+    }
+
+    public record ImageContent(InputStream content, String mediaType, long sizeBytes) {
     }
 
     @Transactional

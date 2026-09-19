@@ -76,6 +76,8 @@ public class ImageMultipartConfiguration {
             return null;
         }
         try {
+            // The controller's bounded original-byte read is an int-sized B + 1 operation.
+            Math.toIntExact(Math.addExact(maxFileBytes, 1L));
             return new MultipartLimits(maxFileBytes, Math.addExact(maxFileBytes, overheadBytes));
         } catch (ArithmeticException ignored) {
             return null;
@@ -88,6 +90,7 @@ public class ImageMultipartConfiguration {
             return false;
         }
         try {
+            Math.toIntExact(Math.addExact(maxFileBytes, 1L));
             Math.addExact(maxFileBytes, overheadBytes);
             return true;
         } catch (ArithmeticException ignored) {

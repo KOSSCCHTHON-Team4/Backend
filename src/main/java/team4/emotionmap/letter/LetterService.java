@@ -16,7 +16,8 @@ import team4.emotionmap.account.User;
 import team4.emotionmap.account.UserRepository;
 import team4.emotionmap.letter.dto.LetterLikeResponse;
 import team4.emotionmap.letter.dto.LetterResponse;
-import team4.emotionmap.media.ImageStorageService;
+import team4.emotionmap.contracts.media.ImageFileLifecycle;
+import team4.emotionmap.contracts.media.LocalImageStore;
 import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.memory.Memory;
 import team4.emotionmap.memory.MemoryAccessService;
@@ -34,7 +35,8 @@ public class LetterService {
     private final MemoryAccessService memoryAccessService;
     private final AccountAccessService accountAccessService;
     private final UserRepository userRepository;
-    private final ImageStorageService imageStorageService;
+    private final LocalImageStore localImageStore;
+    private final ImageFileLifecycle imageFileLifecycle;
 
     @Transactional(readOnly = true)
     public List<LetterResponse> findForReceiver(UUID receiverId) {
@@ -113,14 +115,15 @@ public class LetterService {
                 || !TransactionSynchronizationManager.isSynchronizationActive()) {
             throw new IllegalStateException("Image copies require a synchronized database transaction");
         }
-        String copyPath = imageStorageService.copy(sourcePath);
+        imageFileLifecycle.protectWritesInCurrentTransaction();
+        String copyPath = localImageStore.duplicateIndependent(sourcePath).storageKey();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCompletion(int status) {
                 // An unknown outcome may have committed: never delete its potentially referenced file.
                 if (status == STATUS_ROLLED_BACK) {
                     try {
-                        imageStorageService.delete(copyPath);
+                        imageFileLifecycle.deleteIfUnreferenced(copyPath);
                     } catch (RuntimeException exception) {
                         log.warn("Failed to clean up an image after a rolled-back letter copy");
                     }
