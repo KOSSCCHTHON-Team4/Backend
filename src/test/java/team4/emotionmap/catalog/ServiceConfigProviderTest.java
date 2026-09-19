@@ -50,8 +50,8 @@ class ServiceConfigProviderTest {
         ServiceConfigProperties p = mockProperties();
         ServiceConfigProvider provider = new ServiceConfigProvider(new ServiceConfigProperties(
                 p.configVersion(), 0, p.demoCenter(), p.limits(), p.auth()));
-        assertThat(provider.missingKeys()).hasSize(1);
-        assertThat(provider.missingKeys().get(0)).startsWith("(invalid)");
+        assertThat(catchThrowableOfType(ContractError.class, provider::current).code())
+                .isEqualTo(ErrorCode.CONFIGURATION_UNAVAILABLE);
     }
 
     /** {@code ${ENV:}} 형태의 빈 값이 숫자 필드에서 null 로 바인딩되는지(기본값 주입 없음) 확인한다. */
@@ -68,5 +68,45 @@ class ServiceConfigProviderTest {
         assertThat(bound.limits() == null || bound.limits().imageMaxBytes() == null).isTrue();
         ServiceConfigProvider provider = new ServiceConfigProvider(bound);
         assertThat(provider.missingKeys()).contains("config-version", "radius-meters");
+        assertThat(catchThrowableOfType(ContractError.class, provider::current).code())
+                .isEqualTo(ErrorCode.CONFIGURATION_UNAVAILABLE);
+    }
+ 
+    @Test
+    void boundedReaderRepresentabilityBoundaryIsAcceptedWithoutAllocatingIt() {
+        ServiceConfigProperties p = mockProperties();
+        ServiceConfigProperties.Limits limits = p.limits();
+        ServiceConfigProvider provider = new ServiceConfigProvider(new ServiceConfigProperties(
+                p.configVersion(), p.radiusMeters(), p.demoCenter(),
+                new ServiceConfigProperties.Limits(
+                        limits.memoryContentMaxCodePoints(), limits.preferenceDescriptionMaxCodePoints(),
+                        limits.reportDetailsMaxCodePoints(), Integer.MAX_VALUE - 1L,
+                        limits.imageMaxWidth(), limits.imageMaxHeight(), limits.imageMaxPixels(),
+                        limits.imageUploadTtlSeconds(), limits.analysisTtlSeconds(),
+                        limits.dailyDirectMemoryLimit(), limits.defaultPageLimit(),
+                        limits.maxPageLimit(), limits.maxMapPageLimit()),
+                p.auth()));
+
+        assertThat(provider.current().limits().imageMaxBytes()).isEqualTo(Integer.MAX_VALUE - 1L);
+        assertThat(provider.missingKeys()).isEmpty();
+    }
+
+    @Test
+    void imageBytesBeyondBoundedReaderRepresentabilityMakeConfigUnavailable() {
+        ServiceConfigProperties p = mockProperties();
+        ServiceConfigProperties.Limits limits = p.limits();
+        ServiceConfigProvider provider = new ServiceConfigProvider(new ServiceConfigProperties(
+                p.configVersion(), p.radiusMeters(), p.demoCenter(),
+                new ServiceConfigProperties.Limits(
+                        limits.memoryContentMaxCodePoints(), limits.preferenceDescriptionMaxCodePoints(),
+                        limits.reportDetailsMaxCodePoints(), (long) Integer.MAX_VALUE,
+                        limits.imageMaxWidth(), limits.imageMaxHeight(), limits.imageMaxPixels(),
+                        limits.imageUploadTtlSeconds(), limits.analysisTtlSeconds(),
+                        limits.dailyDirectMemoryLimit(), limits.defaultPageLimit(),
+                        limits.maxPageLimit(), limits.maxMapPageLimit()),
+                p.auth()));
+
+        assertThat(catchThrowableOfType(ContractError.class, provider::current).code())
+                .isEqualTo(ErrorCode.CONFIGURATION_UNAVAILABLE);
     }
 }
