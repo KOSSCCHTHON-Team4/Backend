@@ -25,7 +25,7 @@ import org.junit.jupiter.api.TestFactory;
  * <ul>
  *   <li>{@code contracts} — 공동 계약(포트·값 객체·오류). 모든 모듈이 의존 가능. 자신은 내부 모듈에 의존하지 않는다.</li>
  *   <li>{@code platform} — 보안·웹·OpenAPI 기반. contracts 에만 의존하고 업무 모듈에는 의존하지 않는다.</li>
- *   <li>{@code account → platform.security.JwtTokenProvider} — 기존 명시 계약(A01 에서 재검토).</li>
+ *   <li>{@code account → platform.security} — JWT·현재 계정 검사와 공통 비밀번호 인코더의 명시 계약만 사용한다.</li>
  * </ul>
  */
 class ModuleArchitectureTest {
@@ -37,7 +37,8 @@ class ModuleArchitectureTest {
     // Explicit same-DB contracts used by cross-domain transactions. No wildcard
     // package access: adding a dependency still requires reviewing this boundary.
     private static final Map<String, List<String>> PUBLIC_CONTRACTS = Map.of(
-            "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard"),
+            "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard",
+                    "platform.security.PasswordHashConfiguration"),
             "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
                     "media.ImageStorageService", "media.ImageUpload", "media.ImageUploadService", "media.StoredImage",
                     "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository"),

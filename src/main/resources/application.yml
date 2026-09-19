@@ -31,6 +31,14 @@ spring:
 
 # 파일(사진) 저장 위치. 각 Entity 에는 이 base 기준의 상대경로만 저장한다.
 app:
+  security:
+    password:
+      bcrypt-strength: ${PASSWORD_BCRYPT_STRENGTH:}
+  account:
+    login:
+      # 실패 집계 창은 잠금 시간과 별개이며 모든 환경에서 명시한다.
+      failed-attempt-window-seconds: ${LOGIN_FAILED_ATTEMPT_WINDOW_SECONDS:}
+
   storage:
     # 프로필별로 오버라이드. 여기서는 안전한 기본값만 둔다.
     upload-dir: ${APP_UPLOAD_DIR:./uploads}
