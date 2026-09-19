@@ -22,6 +22,12 @@ import team4.emotionmap.place.Place;
 import team4.emotionmap.place.PlaceCategory;
 import team4.emotionmap.place.PlaceCategoryRepository;
 import team4.emotionmap.place.PlaceRepository;
+import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
+import team4.emotionmap.contracts.memory.AxisSource;
+import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DataOrigin;
+import team4.emotionmap.contracts.memory.OriginKind;
 
 @Service
 @RequiredArgsConstructor
@@ -61,10 +67,12 @@ public class MemoryService {
                 .distributionType(request.type()).originKind(OriginKind.DIRECT)
                 .dataOrigin(DataOrigin.PARTICIPANT)
                 .placeLabelSnapshot(place.getLabel()).placeLat(place.getLat()).placeLng(place.getLng())
-                .crowdLevel(request.atmospheres().crowdLevel()).spatialFeel(request.atmospheres().spatialFeel())
-                .companyFit(request.atmospheres().companyFit()).stayStyle(request.atmospheres().stayStyle())
-                .crowdSource(ValueSource.USER).spatialSource(ValueSource.USER)
-                .companySource(ValueSource.USER).staySource(ValueSource.USER)
+                .crowdLevel((short) request.atmospheres().crowdLevel())
+                .spatialFeel((short) request.atmospheres().spatialFeel())
+                .companyFit((short) request.atmospheres().companyFit())
+                .stayStyle((short) request.atmospheres().stayStyle())
+                .crowdSource(AxisSource.USER).spatialSource(AxisSource.USER)
+                .companySource(AxisSource.USER).staySource(AxisSource.USER)
                 .atmosphereAnalysisStatus(AtmosphereAnalysisStatus.NOT_RUN)
                 .categoryAnalysisStatus(CategoryAnalysisStatus.NOT_RUN)
                 .imagePath(image == null ? null : image.getStoragePath())
@@ -78,7 +86,7 @@ public class MemoryService {
             PlaceCategory category = categories.get(index);
             memoryCategoryRepository.save(MemoryCategory.builder()
                     .id(new MemoryCategoryId(memory.getId(), category.getId()))
-                    .slotNo((short) (index + 1)).assignmentSource(ValueSource.USER)
+                    .slotNo((short) (index + 1)).assignmentSource(AxisSource.USER)
                     .labelSnapshot(category.getLabel()).taxonomyVersion(category.getTaxonomyVersion()).build());
         }
         return MemoryResponse.from(memory);
