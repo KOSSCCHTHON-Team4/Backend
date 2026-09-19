@@ -46,6 +46,55 @@ app:
     max-size-bytes: ${APP_STORAGE_MAX_SIZE_BYTES:10485760}   # 10 MB
 
   # ------------------------------------------------------------------------
+  # 서비스 설정 (A03 GET /config). D03 미정값 — 코드에 기본 숫자를 두지 않는다.
+  #   * 공통 파일에는 키 이름과 환경변수 매핑만 둔다. 값이 비면 GET /config 는 503 CONFIGURATION_UNAVAILABLE.
+  #   * local 프로필은 API_SPEC 8.2 의 MOCK 예시값을 넣어 개발을 돕는다(운영값 확정 아님).
+  #   * prod 는 SERVICE_* 환경변수로만 주입한다.
+  # ------------------------------------------------------------------------
+  service:
+    config-version: ${SERVICE_CONFIG_VERSION:}
+    radius-meters: ${SERVICE_RADIUS_METERS:}
+    demo-center:
+      lat: ${SERVICE_DEMO_CENTER_LAT:}
+      lng: ${SERVICE_DEMO_CENTER_LNG:}
+    limits:
+      memory-content-max-code-points: ${SERVICE_LIMIT_MEMORY_CONTENT_MAX_CODE_POINTS:}
+      preference-description-max-code-points: ${SERVICE_LIMIT_PREFERENCE_DESCRIPTION_MAX_CODE_POINTS:}
+      report-details-max-code-points: ${SERVICE_LIMIT_REPORT_DETAILS_MAX_CODE_POINTS:}
+      image-max-bytes: ${SERVICE_LIMIT_IMAGE_MAX_BYTES:}
+      image-max-width: ${SERVICE_LIMIT_IMAGE_MAX_WIDTH:}
+      image-max-height: ${SERVICE_LIMIT_IMAGE_MAX_HEIGHT:}
+      image-max-pixels: ${SERVICE_LIMIT_IMAGE_MAX_PIXELS:}
+      image-upload-ttl-seconds: ${SERVICE_LIMIT_IMAGE_UPLOAD_TTL_SECONDS:}
+      analysis-ttl-seconds: ${SERVICE_LIMIT_ANALYSIS_TTL_SECONDS:}
+      daily-direct-memory-limit: ${SERVICE_LIMIT_DAILY_DIRECT_MEMORY_LIMIT:}
+      default-page-limit: ${SERVICE_LIMIT_DEFAULT_PAGE_LIMIT:}
+      max-page-limit: ${SERVICE_LIMIT_MAX_PAGE_LIMIT:}
+      max-map-page-limit: ${SERVICE_LIMIT_MAX_MAP_PAGE_LIMIT:}
+    auth:
+      access-token-ttl-seconds: ${SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS:}
+      failed-login-limit: ${SERVICE_AUTH_FAILED_LOGIN_LIMIT:}
+      login-lock-seconds: ${SERVICE_AUTH_LOGIN_LOCK_SECONDS:}
+
+  # ------------------------------------------------------------------------
+  # 서명값(analysisToken·커서) 키. JWT 비밀과 별도 값. 운영은 SIGNING_SECRET 환경변수로만 주입(커밋 금지).
+  # ------------------------------------------------------------------------
+  signing:
+    secret: ${SIGNING_SECRET:local-dev-only-change-me-emotionmap-signing-secret-key-0987654321}
+
+  # ------------------------------------------------------------------------
+  # AI 호출 계약(C09). provider=mock 이면 모델 호출 없이 고정 규칙의 가짜 어댑터를 쓴다.
+  #   실제 provider/모델/프롬프트 버전은 AI 담당과 합의 후 환경변수로 주입한다.
+  # ------------------------------------------------------------------------
+  ai:
+    provider: ${AI_PROVIDER:mock}
+    timeout: ${AI_TIMEOUT:PT8S}
+    analysis-model: ${AI_ANALYSIS_MODEL:mock-analysis}
+    analysis-prompt-version: ${AI_ANALYSIS_PROMPT_VERSION:mock-v1}
+    moderation-model: ${AI_MODERATION_MODEL:mock-moderation}
+    moderation-prompt-version: ${AI_MODERATION_PROMPT_VERSION:mock-v1}
+
+  # ------------------------------------------------------------------------
   # JWT 설정. /v1/auth/login 을 제외한 업무 API 는 Bearer 토큰이 필요하다.
   #   * secret 은 절대 커밋 금지. 배포/CI 에서는 JWT_SECRET 환경변수로 주입한다.
   #   * 아래 기본값은 로컬 개발 전용(길이 충분). 실제 배포에선 반드시 교체한다.

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "code": "CROWD_LEVEL",
+      "order": 1,
+      "options": [
+        {
+          "value": -1,
+          "label": "조용한"
+        },
+        {
+          "value": 1,
+          "label": "북적이는"
+        }
+      ]
+    },
+    {
+      "code": "SPATIAL_FEEL",
+      "order": 2,
+      "options": [
+        {
+          "value": -1,
+          "label": "아늑한"
+        },
+        {
+          "value": 1,
+          "label": "탁 트인"
+        }
+      ]
+    },
+    {
+      "code": "COMPANY_FIT",
+      "order": 3,
+      "options": [
+        {
+          "value": -1,
+          "label": "혼자 가기 좋은"
+        },
+        {
+          "value": 1,
+          "label": "함께 가기 좋은"
+        }
+      ]
+    },
+    {
+      "code": "STAY_STYLE",
+      "order": 4,
+      "options": [
+        {
+          "value": -1,
+          "label": "오래 머물기 좋은"
+        },
+        {
+          "value": 1,
+          "label": "잠깐 들르기 좋은"
+        }
+      ]
+    }
+  ]
+}

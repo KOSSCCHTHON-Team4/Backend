@@ -28,9 +28,19 @@ The current code contains the UUID persistence cutover and migrated existing cal
 
 ## Architecture
 
-Single Gradle module, feature packages under `team4.emotionmap`: account / memory / place / letter / report / media / platform. Each feature owns its Entity, Repository, Service, Controller and DTO.
+Single Gradle module, feature packages under `team4.emotionmap`: account / memory / place / letter / report / media / catalog / platform / contracts. Each feature owns its Entity, Repository, Service, Controller and DTO.
 
-Module dependencies must remain acyclic and restricted to the exact public contracts in `architecture/ModuleArchitectureTest`. Shared same-DB transactions deliberately use a small set of explicit model/repository/service contracts; this does not make every public type a cross-module API. Review new dependencies and update the explicit allowlist, never grant wildcard package access.
+Every module may depend on `contracts` (shared ports, value objects and errors); `contracts` must not depend on application modules. `catalog` owns `/v1/config`, `/v1/atmosphere-axes` and `/v1/place-categories`.
+
+Module dependencies must remain acyclic and restricted to the exact public contracts in `architecture/ModuleArchitectureTest`. Shared same-DB transactions deliberately use a small set of explicit model/repository/service contracts; this does not make every public type a cross-module API. Review new dependencies and update the explicit allowlist, never grant wildcard package access. Platform may depend on contracts, not business modules.
+
+Error handling: throw `contracts.error.ContractError` (with an `ErrorCode` from API_SPEC §10);
+`platform.web.GlobalExceptionHandler` turns it into the `ApiError` body with `Cache-Control`,
+`WWW-Authenticate`, `Retry-After`, and `X-Request-Id`. JSON is strict (Jackson 3): duplicate keys,
+unknown properties, and scalar coercion (`1.0`, `"1"`, `123`→string) are rejected; 4-axis
+`Atmospheres` is validated at the token level by `platform.web.json.AtmospheresJson`.
+Service limits/radius come only from `app.service.*` (`ServiceConfigSource`); no defaults in code.
+See `docs/plan/BE1_STAGE0_REPORT.md` for the current contract inventory and coordination list.
 
 `MemoryReadAccess` is owned by memory and implemented by letter. `AccountAccessGuard` is owned by platform and implemented by account. Platform must not import business entities or repositories. Do not split one transactional use case into internal HTTP calls or independent commits.
 

@@ -24,3 +24,33 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     team4.emotionmap: DEBUG
+
+# ----------------------------------------------------------------------------
+# A03 서비스 설정 — API_SPEC 8.2 의 MOCK 예시값 (D03 미확정. 운영값으로 확정한 것이 아니다).
+# 로컬 개발·FE 연동 편의를 위해서만 둔다. prod 는 환경변수 주입 없이는 503 이다.
+# ----------------------------------------------------------------------------
+app:
+  service:
+    config-version: ${SERVICE_CONFIG_VERSION:mock-config-v1}
+    radius-meters: ${SERVICE_RADIUS_METERS:1000}
+    demo-center:
+      lat: ${SERVICE_DEMO_CENTER_LAT:37.6109}
+      lng: ${SERVICE_DEMO_CENTER_LNG:126.9977}
+    limits:
+      memory-content-max-code-points: ${SERVICE_LIMIT_MEMORY_CONTENT_MAX_CODE_POINTS:3000}
+      preference-description-max-code-points: ${SERVICE_LIMIT_PREFERENCE_DESCRIPTION_MAX_CODE_POINTS:1000}
+      report-details-max-code-points: ${SERVICE_LIMIT_REPORT_DETAILS_MAX_CODE_POINTS:1000}
+      image-max-bytes: ${SERVICE_LIMIT_IMAGE_MAX_BYTES:5242880}
+      image-max-width: ${SERVICE_LIMIT_IMAGE_MAX_WIDTH:6000}
+      image-max-height: ${SERVICE_LIMIT_IMAGE_MAX_HEIGHT:6000}
+      image-max-pixels: ${SERVICE_LIMIT_IMAGE_MAX_PIXELS:20000000}
+      image-upload-ttl-seconds: ${SERVICE_LIMIT_IMAGE_UPLOAD_TTL_SECONDS:1800}
+      analysis-ttl-seconds: ${SERVICE_LIMIT_ANALYSIS_TTL_SECONDS:900}
+      daily-direct-memory-limit: ${SERVICE_LIMIT_DAILY_DIRECT_MEMORY_LIMIT:20}
+      default-page-limit: ${SERVICE_LIMIT_DEFAULT_PAGE_LIMIT:20}
+      max-page-limit: ${SERVICE_LIMIT_MAX_PAGE_LIMIT:50}
+      max-map-page-limit: ${SERVICE_LIMIT_MAX_MAP_PAGE_LIMIT:200}
+    auth:
+      access-token-ttl-seconds: ${SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS:3600}
+      failed-login-limit: ${SERVICE_AUTH_FAILED_LOGIN_LIMIT:5}
+      login-lock-seconds: ${SERVICE_AUTH_LOGIN_LOCK_SECONDS:60}

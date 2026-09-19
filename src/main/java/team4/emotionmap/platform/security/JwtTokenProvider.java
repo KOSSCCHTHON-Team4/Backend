@@ -1,6 +1,7 @@
 package team4.emotionmap.platform.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +44,9 @@ public class JwtTokenProvider {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+        if (claims.getSubject() == null) {
+            throw new JwtException("JWT subject is required");
+        }
         return UUID.fromString(claims.getSubject());
     }
 

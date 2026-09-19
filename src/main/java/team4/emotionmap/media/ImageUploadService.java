@@ -65,7 +65,7 @@ public class ImageUploadService {
                 .filter(image -> image.getOwnerId().equals(ownerId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Image upload not found"));
         if (upload.getStatus() == ImageUploadStatus.ATTACHED) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Image already attached");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "IMAGE_ALREADY_ATTACHED");
         }
         if (upload.getStatus() != ImageUploadStatus.STAGED || !upload.getExpiresAt().isAfter(Instant.now())) {
             throw new ResponseStatusException(HttpStatus.GONE, "Image upload expired");

@@ -11,16 +11,25 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import team4.emotionmap.platform.web.ApiErrorWriter;
 
-/** Stateless UUID JWT authentication; login, documentation and health are public. */
+/**
+ * Stateless UUID JWT authentication with current account/onboarding checks.
+ * Only POST /v1/auth/login, documentation and health are public.
+ * Failures use ApiError JSON; all responses prevent shared caching.
+ */
 @Configuration
 public class SecurityConfig {
 
     private final JwtTokenProvider tokenProvider;
+    private final ApiErrorWriter apiErrorWriter;
     private final AccountAccessGuard accountAccessGuard;
 
-    public SecurityConfig(JwtTokenProvider tokenProvider, AccountAccessGuard accountAccessGuard) {
+    public SecurityConfig(JwtTokenProvider tokenProvider, ApiErrorWriter apiErrorWriter,
+                          AccountAccessGuard accountAccessGuard) {
         this.tokenProvider = tokenProvider;
+        this.apiErrorWriter = apiErrorWriter;
         this.accountAccessGuard = accountAccessGuard;
     }
 
@@ -29,20 +38,20 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .headers(headers -> headers
+                        .cacheControl(cache -> cache.disable())
+                        .addHeaderWriter(new StaticHeadersWriter("Cache-Control", ApiErrorWriter.CACHE_CONTROL_VALUE)))
+                .exceptionHandling(eh -> eh
+                        .authenticationEntryPoint(new ApiErrorAuthenticationEntryPoint(apiErrorWriter))
+                        .accessDeniedHandler(new ApiErrorAccessDeniedHandler(apiErrorWriter)))
                 .authorizeHttpRequests(auth -> auth
                         // Preserve the original 4xx/5xx during the container's internal error dispatch.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/auth/login").permitAll()
-                        // 공개: API 문서
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        // 공개: 헬스체크
                         .requestMatchers("/actuator/health").permitAll()
-                        // 그 외 전부 인증 필요
                         .anyRequest().authenticated())
-                .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, exception) ->
-                                response.sendError(401, "AUTH_REQUIRED")))
-                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider, accountAccessGuard),
+                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider, accountAccessGuard, apiErrorWriter),
                         UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
