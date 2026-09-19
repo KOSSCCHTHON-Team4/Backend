@@ -8,6 +8,10 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
 import team4.emotionmap.contracts.signing.SignedClaims;
@@ -21,6 +25,30 @@ class HmacSignedValueCodecTest {
     private final Instant now = Instant.parse("2026-09-19T02:00:00Z");
     private final SignedClaims claims = new SignedClaims(SignedValuePurpose.ANALYSIS_TOKEN, user, 1,
             now.plusSeconds(900), Map.of("h", "abc", "a", "--+?"));
+
+    @Test
+    void springManagedCodecUsesBoundSigningProperties() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(SigningContextConfiguration.class)
+                .withPropertyValues("app.signing.secret=" + SECRET)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(HmacSignedValueCodec.class);
+                    HmacSignedValueCodec springCodec = context.getBean(HmacSignedValueCodec.class);
+
+                    String token = springCodec.sign(claims);
+                    assertThat(springCodec.verify(token, SignedValuePurpose.ANALYSIS_TOKEN, user, 1, now))
+                            .isEqualTo(claims);
+                    assertThat(new HmacSignedValueCodec(SECRET)
+                            .verify(token, SignedValuePurpose.ANALYSIS_TOKEN, user, 1, now))
+                            .isEqualTo(claims);
+                });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(SigningProperties.class)
+    @Import(HmacSignedValueCodec.class)
+    static class SigningContextConfiguration {
+    }
 
     @Test
     void roundTrip() {

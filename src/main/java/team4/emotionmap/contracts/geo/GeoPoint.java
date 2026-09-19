@@ -1,8 +1,8 @@
 package team4.emotionmap.contracts.geo;
 
 /**
- * 위경도(API_SPEC 9장 {@code Coordinates}). lat -90~90, lng -180~180 만 허용.
- * 거리 계산은 BE2 의 {@code DistancePolicy} 가 담당하며 여기에는 계산을 두지 않는다.
+ * 위경도(API_SPEC 9장 {@code Coordinates}). lat -90~90, lng -180~180 만 허용한다.
+ * {@link DistanceMeters} 는 이 검증된 좌표로 미터 단위 구면거리를 계산한다.
  */
 public record GeoPoint(double lat, double lng) {
 
@@ -13,10 +13,10 @@ public record GeoPoint(double lat, double lng) {
     }
 
     public static boolean isValidLat(double lat) {
-        return !Double.isNaN(lat) && lat >= -90.0 && lat <= 90.0;
+        return Double.isFinite(lat) && lat >= -90.0 && lat <= 90.0;
     }
 
     public static boolean isValidLng(double lng) {
-        return !Double.isNaN(lng) && lng >= -180.0 && lng <= 180.0;
+        return Double.isFinite(lng) && lng >= -180.0 && lng <= 180.0;
     }
 }

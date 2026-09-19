@@ -16,6 +16,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import team4.emotionmap.contracts.account.AccountStatus;
 @Entity
 @Table(name = "app_users")
 @Getter
@@ -34,7 +35,7 @@ public class User {
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "text")
-    private AccessStatus accessStatus = AccessStatus.PENDING;
+    private AccountStatus accessStatus = AccountStatus.PENDING;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -54,7 +55,7 @@ public class User {
     private Instant updatedAt = Instant.now();
 
     public boolean isActive() {
-        return accessStatus == AccessStatus.ACTIVE;
+        return accessStatus == AccountStatus.ACTIVE;
     }
 
     public void recordPreferenceChange(Instant changedAt) {

@@ -13,6 +13,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import team4.emotionmap.contracts.memory.AxisSource;
 
 @Entity
 @Table(name = "memory_categories", uniqueConstraints =
@@ -30,7 +31,7 @@ public class MemoryCategory {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "assignment_source", nullable = false, columnDefinition = "text")
-    private ValueSource assignmentSource;
+    private AxisSource assignmentSource;
 
     @Column(name = "label_snapshot", nullable = false, columnDefinition = "text")
     private String labelSnapshot;

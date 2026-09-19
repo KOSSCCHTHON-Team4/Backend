@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
 
 public record PreferencesRequest(
         @NotNull @Valid Atmospheres atmospheres,

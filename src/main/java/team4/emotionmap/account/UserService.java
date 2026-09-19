@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import team4.emotionmap.account.dto.Atmospheres;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
 import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.account.dto.UserResponse;
@@ -94,15 +94,17 @@ public class UserService {
     }
 
     private static boolean samePreference(UserPreferenceVersion version, Atmospheres axes, String description) {
-        return Atmospheres.from(version).equals(axes) && Objects.equals(version.getDescription(), description);
+        return new Atmospheres(version.getCrowdLevel(), version.getSpatialFeel(),
+                version.getCompanyFit(), version.getStayStyle()).equals(axes)
+                && Objects.equals(version.getDescription(), description);
     }
 
     private static UserPreferenceVersion newPreference(UUID userId, long revision, Instant effectiveAt,
                                                        Atmospheres axes, String description) {
         return UserPreferenceVersion.builder()
                 .userId(userId).revision(revision).effectiveAt(effectiveAt)
-                .crowdLevel(axes.crowdLevel()).spatialFeel(axes.spatialFeel())
-                .companyFit(axes.companyFit()).stayStyle(axes.stayStyle())
+                .crowdLevel((short) axes.crowdLevel()).spatialFeel((short) axes.spatialFeel())
+                .companyFit((short) axes.companyFit()).stayStyle((short) axes.stayStyle())
                 .description(description).build();
     }
 }

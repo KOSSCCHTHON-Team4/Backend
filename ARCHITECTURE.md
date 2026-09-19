@@ -80,7 +80,8 @@ UUID ID, smallint 축·분류, `Instant`/timestamptz, `LocalDate`/date, 문자�
 
 - `local` 기본: 실제 PostgreSQL 연결. `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 변경한다.
 - `ci`: DataSource/JPA/Flyway 자동구성 비활성화. DB 없는 테스트용이며 전체 앱 실행용이 아니다.
-- `prod`: 시크릿은 환경변수로 공급한다. 개발용 DB 비밀번호와 JWT 기본값을 재사용하지 않는다.
+- `prod`: 서로 다른 32바이트 이상 `JWT_SECRET`·`SIGNING_SECRET`을 공급한다. 누락·짧은 값·동일값·알려진 개발용 값은 기동을 거부하며, `prod,local` 조합으로 우회할 수 없다. 개발용 DB 비밀번호도 재사용하지 않는다.
+- 개발용 비밀과 mock AI 설정은 `local`·`ci` 전용이다. `prod`에는 non-mock `AI_PROVIDER`와 실제 분석·안전 검사·동률 평가 포트 구현이 모두 필요하다. 현재 저장소는 실제 provider를 구현하지 않았으므로 prod 기동 준비가 완료된 상태가 아니다.
 
 ## 6. CI / CD (DB 비연결)
 
@@ -173,7 +174,9 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 - Principal과 JWT subject는 UUID다. 클라이언트가 보내는 ownerId/userId를 신뢰하지 않는다.
 - BCrypt 자격증명을 검사한 뒤 ACTIVE 상태를 확인한다. 없는 이메일·틀린 비밀번호는 같은 인증 실패를 반환한다.
 - 보호 요청에서도 현재 계정 상태를 확인하고 온보딩 전 허용 경로를 제한한다. JWT 발급 당시 ACTIVE였다는 사실만 믿지 않는다.
-- `JWT_SECRET`은 환경변수로 주입하며 개발용 기본값은 배포에 사용하지 않는다. 현재 access token만 발급하고 refresh·공개 가입·위치 변경 경로는 제공하지 않는다.
+- `JWT_SECRET`·`SIGNING_SECRET`은 환경변수로 주입한다. 토큰의 초 단위 TTL과 로그인 응답은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS`를 함께 사용한다. 기존 `JWT_EXPIRATION_MILLIS`는 사용하지 않는다. 필요한 서비스 설정이 없으면 발급은 503으로 실패한다. 발급·검증은 동일한 UTC `Clock`을 사용한다.
+- 현재 access token만 발급하고 refresh·공개 가입·위치 변경 경로는 제공하지 않는다.
+- `CORS_ALLOWED_ORIGINS`는 쉼표로 구분한 정확한 origin allowlist다. wildcard·credential cookie는 허용하지 않는다. 허용된 preflight만 CORS 필터가 처리하며 일반 OPTIONS 요청의 업무 API 인증은 유지한다. 브라우저에 `X-Request-Id`·`Retry-After`·`WWW-Authenticate`를 노출한다.
 - 본인 또는 실제 수신자라는 객체별 접근 자격을 확인한다. 삭제·숨김 대상은 기존 접근자에게 410, 미권한자에게 404를 반환한다. 이미지·핀·집계에도 같은 가시성 원칙을 적용한다.
 - 내부 ERROR dispatch는 원래 오류 상태를 보존하도록 허용한다. 이는 외부 `/error` 요청을 공개한다는 뜻이 아니다.
 - Swagger의 Authorize에 발급된 JWT를 넣어 보호 API를 호출한다. 로그인 제한·운영자 도구·전체 공통 오류 계약은 별도 구현 항목이다.

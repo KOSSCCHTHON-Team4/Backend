@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 import team4.emotionmap.account.User;
 import team4.emotionmap.account.UserPreferenceVersion;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
 
 public record UserResponse(
         UUID id,
@@ -19,7 +20,8 @@ public record UserResponse(
         boolean onboarded = user.getMailboxEnabledAt() != null && preference != null;
         return new UserResponse(user.getId(), email, onboarded,
                 onboarded ? new Mailbox(user.getMailboxLat(), user.getMailboxLng(), user.getMailboxEnabledAt()) : null,
-                onboarded ? Atmospheres.from(preference) : null,
+                onboarded ? new Atmospheres(preference.getCrowdLevel(), preference.getSpatialFeel(),
+                        preference.getCompanyFit(), preference.getStayStyle()) : null,
                 onboarded ? preference.getDescription() : null,
                 onboarded ? preference.getRevision().toString() : null,
                 onboarded ? preference.getEffectiveAt() : null);

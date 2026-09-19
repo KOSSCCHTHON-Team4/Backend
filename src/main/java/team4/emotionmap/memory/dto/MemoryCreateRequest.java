@@ -6,8 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
-import team4.emotionmap.account.dto.Atmospheres;
-import team4.emotionmap.memory.DistributionType;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
+import team4.emotionmap.contracts.memory.DistributionType;
 
 /** Direct manual creation: the server records USER sources and NOT_RUN analysis. */
 public record MemoryCreateRequest(

@@ -61,3 +61,18 @@ app:
       access-token-ttl-seconds: ${SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS:3600}
       failed-login-limit: ${SERVICE_AUTH_FAILED_LOGIN_LIMIT:5}
       login-lock-seconds: ${SERVICE_AUTH_LOGIN_LOCK_SECONDS:60}
+
+  # local 전용 합성 보안·AI 설정. 운영 비밀/실 provider가 아니다.
+  signing:
+    secret: ${SIGNING_SECRET:local-dev-only-change-me-emotionmap-signing-secret-key-0987654321}
+  jwt:
+    secret: ${JWT_SECRET:local-dev-only-change-me-emotionmap-jwt-secret-key-1234567890}
+  ai:
+    provider: ${AI_PROVIDER:mock}
+    timeout: ${AI_TIMEOUT:PT8S}
+    analysis-model: ${AI_ANALYSIS_MODEL:mock-analysis}
+    analysis-prompt-version: ${AI_ANALYSIS_PROMPT_VERSION:mock-v1}
+    moderation-model: ${AI_MODERATION_MODEL:mock-moderation}
+    moderation-prompt-version: ${AI_MODERATION_PROMPT_VERSION:mock-v1}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}

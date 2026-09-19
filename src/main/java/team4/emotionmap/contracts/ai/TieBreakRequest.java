@@ -26,5 +26,8 @@ public record TieBreakRequest(String preferenceDescription, List<Candidate> cand
         if (candidates.size() < 2) {
             throw new IllegalArgumentException("tie-break needs at least two candidates");
         }
+        if (candidates.stream().map(Candidate::memoryId).distinct().count() != candidates.size()) {
+            throw new IllegalArgumentException("tie-break candidates must have distinct memory IDs");
+        }
     }
 }
