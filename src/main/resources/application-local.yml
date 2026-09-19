@@ -14,6 +14,13 @@ spring:
     password: ${DB_PASSWORD:emotionmap}
     driver-class-name: org.postgresql.Driver
 
+  # local 프로필에서만 개발용 더미데이터 시드(db/seed)를 함께 로드한다.
+  #   * 공통 application.yml 은 db/migration 만 로드한다(운영 스키마).
+  #   * prod/ci 는 이 오버라이드가 없으므로 db/seed 가 절대 실행되지 않는다.
+  #   * db/seed 의 R__seed_dev_data.sql 은 SYNTHETIC/TEAM_TEST 합성 데이터만 넣는다.
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
+
   jpa:
     show-sql: true
     properties:
