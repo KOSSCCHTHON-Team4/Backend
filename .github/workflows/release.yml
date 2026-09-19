@@ -1,0 +1,40 @@
+# ============================================================================
+# Release: v* 태그가 push 되면 실행 가능한 JAR 을 빌드해 아티팩트로 첨부한다.
+#   백엔드 전용 레포(프로젝트 루트 = 레포 루트).
+#   정책: CI 와 마찬가지로 DB 에 연결하지 않는다 (DB 비연결 단위테스트만 포함).
+#
+#   태그 만들기:  git tag v0.1.0 && git push origin v0.1.0
+# ============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build bootJar (runs DB-less tests)
+        run: ./gradlew clean build --console=plain
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+
+      - name: Upload runnable JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: emotion-map-${{ github.ref_name }}
+          path: build/libs/*.jar
+          if-no-files-found: error
