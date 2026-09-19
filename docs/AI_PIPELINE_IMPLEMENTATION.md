@@ -63,3 +63,23 @@
 # 4) POST /v1/memories type=LETTER + analysisToken → 201, moderation APPROVED(mock), place vibe 갱신
 # 5) GET /v1/notifications (수신자) → stage 1 알림 1건, reason 문구
 ```
+
+## 7. 검증 중 발견·수정한 결함
+
+장소 벡터(`Place.vibe_*`/`VibeVector`)는 경험 1건(±1 정수)과 달리 -1~1 **실수**다(§2 표). 이 실수 처리가
+엔티티(`Place`)와 엔드포인트(`GET /v1/places` → `PlaceResponse`) 전 구간(경계·소수 포함)에서 온전한지
+회귀 테스트로 검증하는 과정에서 결함을 하나 발견해 수정했다.
+
+- **증상**: `VibeVector.isZero()`가 JavaBean 접근자 명명 규칙(`isXxx`)을 따르는 바람에 Jackson이 이를
+  `"zero"`라는 JSON 프로퍼티로 오인해, `GET /v1/places` 응답의 `vibe` 객체에 API 계약에 없는
+  `"zero": false` 필드가 함께 나갔다. 순수 단위 테스트(`VibeVectorTest`)만으로는 드러나지 않고,
+  앱과 동일한 `StrictJson` mapper로 `PlaceResponse`를 직렬화→역직렬화 왕복시키는 테스트에서
+  `UnrecognizedPropertyException`으로 발각됐다(`FAIL_ON_UNKNOWN_PROPERTIES` 정책 때문에 되읽기가 막힘).
+- **수정**: `VibeVector.isZero()`에 `@JsonIgnore` 추가. 값·검증 로직 변경 없음, 응답에서 의도치 않은
+  필드만 사라진다.
+- **추가한 테스트**:
+  - `VibeVectorTest`: -1~1 경계·소수 스윕(`-1.0, -0.87654321, -0.333333, 0.0001, 1.0` 등) 허용 확인,
+    경계 바로 밖(`±1.0000001`)·`NaN` 거부 확인
+  - `place.PlaceTest`(신규): `Place.updateProfile()`로 전 구간 실수를 넣고 `place.vibe()`가 정밀도
+    손실 없이 그대로 돌아오는지 확인
+  - `place.dto.PlaceResponseTest`(신규): 위 결함을 실제로 잡아낸 JSON 왕복 테스트
