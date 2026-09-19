@@ -151,7 +151,7 @@ erDiagram
         int radius_m "server config snapshot"
         text status
         uuid claim_token "nullable"
-        smallint fixed_score "0 to 4 nullable"
+        double fixed_score "finite 0 to 4; canonical +0; nullable"
         text tie_break_method "nullable"
         timestamptz completed_at "nullable"
     }
@@ -384,7 +384,7 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `cutoff_at` | `timestamptz` | 불가 | — | 서비스 날짜의 예정 09:00. 지연 실행 시에도 고정 |
 | `preference_version_id` | `uuid` | 불가 | FK | 그날 사용할 실제 불변 취향 버전. user_id와 복합 FK |
 | `radius_m` | `integer` | 불가 | — | 서비스 설정 고정 반경의 작업 스냅샷. 실제 값 미정 |
-| `rule_version` | `text` | 불가 | 기본 'atmosphere-v1' | 동일 가중치 4축·동률 규칙 버전 |
+| `rule_version` | `text` | 불가 | — (SQL 기본값 없음) | 동일 가중치 4축·동률 규칙 버전. 새 슬롯은 cutoff의 명시적 설정 이력에서 선택한 값을 저장 |
 | `random_seed` | `uuid` | 불가 | 기본 gen_random_uuid() | 같은 작업의 마지막 무작위 선정 재현에 사용하는 서버 값 |
 | `status` | `text` | 불가 | 기본 'PENDING' | 해당 객체의 작업/처리 상태 |
 | `attempt_count` | `integer` | 불가 | 기본 0 | 선정 처리 시도 수 |
@@ -394,7 +394,7 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `last_error_code` | `text` | 가능 | — | PII·본문을 넣지 않는 운영 오류 코드 |
 | `candidate_count` | `integer` | 가능 | — | 거리 등 적격 조건을 만족한 최종 검사 후보 수 |
 | `top_tie_count` | `integer` | 가능 | — | 그중 1차 최고점 후보 수 |
-| `fixed_score` | `smallint` | 가능 | — | 성공 선정 0~4점. 확정 전/빈 결과는 NULL 가능 |
+| `fixed_score` | `double precision` | 가능 | — | 성공 선정 0~4점의 유한 binary64. 0은 canonical `+0`만 허용하며 `atmosphere-v1`의 non-null 역사는 정확한 정수 0·1·2·3·4만 허용. 확정 전/빈 결과는 NULL 가능 |
 | `tie_break_method` | `text` | 가능 | — | 단독 최고점 / 자연어 / 무작위 대체 등의 최종 선정 방식 |
 | `completed_at` | `timestamptz` | 가능 | — | 일일 작업 또는 신고의 종결 시각 |
 | `created_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 행 생성 시각 |
@@ -449,16 +449,21 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 
 ### 4.12 영속 요청 조정·선정 설정·이미지 수명
 
-`V5__persistent_request_coordination.sql`, `V6__selection_config_history.sql`, `V9__image_storage_lifecycle.sql`이 다음 저장 계약을 추가한다. V9은 파일시스템을 변경하거나 기존 root를 채택하지 않는다.
+`V5__persistent_request_coordination.sql`, `V6__selection_config_history.sql`, `V9__image_storage_lifecycle.sql`, `V11__selection_publication_boundary.sql`이 다음 저장 계약을 추가한다. V9은 파일시스템을 변경하거나 기존 root를 채택하지 않는다. V11은 기존 행을 backfill·재작성하거나 운영 반경·규칙·config를 seed하지 않는다.
 
 | 테이블 | 식별자·주요 필드 | 저장 불변식 |
 |---|---|---|
 | `login_attempt_limits` | `email_key_hash` PK, `window_started_at`, `failure_count`, `locked_until`, `updated_at` | 키는 소문자 64자리 SHA-256 hex다. 실패 수는 음수가 아니며, 0이면 창 시작·잠금 시각이 모두 NULL이고 양수이면 창 시작 시각이 필요하다. |
 | `api_idempotency_records` | `(actor_id, request_method, request_path, idempotency_key)` PK, 지문 버전·32바이트 지문, 상태, `claim_token`, `lease_expires_at`, 양수 `attempt_count`, 생성·완료 시각, 결과 FK | 이미지 업로드는 이 행으로 durable key/재생 영수증을 조정한다. 응답 본문·storage key·원문/사본 ID 쌍은 저장하지 않으며, 메모리·신고의 전체 재생 계약 완료를 여기서 주장하지 않는다. |
-| `selection_config_versions` | 자동 생성 BIGINT `revision` PK, 고유 `config_version`, `effective_at`, 양수 `nearby_radius_meters`, `rule_version` | 설정·규칙 버전은 공백 문자열일 수 없다. 유효 시각·revision 내림차순 인덱스를 두며 운영 기본값이나 초기 설정 행을 임의로 넣지 않는다. |
+| `selection_config_versions` | 자동 생성 BIGINT `revision` PK, 고유 `config_version`, `effective_at`, 양수 `nearby_radius_meters`, `rule_version` | 설정·규칙 버전은 공백 문자열일 수 없고 유효 시각·revision 내림차순 인덱스를 둔다. 신뢰된 내부 publisher의 명시적 append만 정식 경로이며 DB trigger가 UPDATE/DELETE를 거절한다. 운영 기본값·초기 설정 행을 임의로 넣지 않고 sealed cutoff 이하로 backdate하지 않는다. |
+| `selection_cutoff_fence` | singleton `id=1`, nullable `sealed_through` | 운영 반경·규칙 설정이 아닌 transaction watermark다. 단일 구조 행만 migration이 만들며, seal 전까지 NULL일 수 있다. |
 | `image_uploads` | UUID, owner, nullable UNIQUE `storage_path`, 메타데이터, status, `expires_at`, nullable UNIQUE `attached_memory_id` | STAGED/ATTACHED는 비어 있지 않은 key가 필요하다. EXPIRED는 `storage_path=NULL`이지만 owner·UUID·메타데이터·만료 시각·완료 요청 FK 영수증을 보존한다. |
 | `image_storage_binding` | singleton PK, migration 생성 `dataset_id`, nullable `root_id`, DB/server/schema locator | UNBOUND는 root·locator가 모두 NULL이다. BOUND는 모두 존재한다. migration은 dataset UUID만 만들며 root를 claim하지 않는다. |
 
+
+`selection_config_versions`의 현재값을 추정하거나 `MatchingProperties` 같은 기본값으로 대체하지 않는다. history reader는 `effective_at <= cutoff`에서 `effective_at DESC, revision DESC`의 한 행만 선택하며 없으면 설정 불가다. publisher는 동일 `config_version`과 동일 payload 재시도만 no-op로 허용하고 다른 payload 재사용은 충돌로 거절한다. 미래 `effective_at` 예약은 명시적으로만 가능하다.
+
+V11 공유 publication primitive에서 publisher와 이후 reader는 같은 datasource의 writable READ COMMITTED transaction을 사용한다. 먼저 `selection_cutoff_fence` 행을 잠근 뒤 업무 행 lock을 얻고 DB `clock_timestamp()`를 읽는다. seal은 DB 시각이 해당 cutoff에 도달한 뒤 watermark를 단조롭게 전진시킬 때만 가능하다. reader는 cutoff를 seal한 뒤 다음 statement에서 history를 읽으며, `publicationTime`은 `sealed_through + 1µs`보다 이르지 않다. 이 계약은 계정/경험 producer 및 selection worker를 구현하거나 운영 설정을 발행하는 HTTP endpoint·CLI를 제공하지 않는다.
 `image_storage_binding`의 BOUND root는 marker의 dataset/root UUID와 **실제 연결에서 관찰한** DB 이름·OID·server address/port·schema 이름·OID가 모두 일치해야 한다. 이름이나 copied dataset UUID만으로 clone을 허용하지 않는다. protected read, 새 파일, expiry, GC 모두 이 경계를 통과해야 하며, HIDDEN/DELETED memory의 참조도 수거에서 보호한다. marker/locator까지 같은 in-place physical restore는 이 작은 프로토콜만으로 구별할 수 없으므로 백업·복구의 DB/filesystem 연관성은 운영자가 별도 승인해야 한다.
 
 EXPIRED 전환은 due STAGED를 lock하고 미첨부·memory 무참조를 확인한 뒤 key만 해제하는 DB commit이다. 파일 삭제는 후속 새 transaction에서 binding과 writer/collector fence를 얻고 모든 upload·memory 참조가 없음을 확인할 때만 가능하다. age, legacy 파일명, 새 DB의 빈 참조만으로 삭제·adopt·reset하지 않는다.
@@ -540,7 +545,7 @@ NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는
 
 예: 08:40 취향 v1 → 09:00 기준 → 10:00 취향 v2 → 11:00 서버 복구라면 v1을 사용한다. 당일 슬롯이 이미 있다면 그 FK를 그대로 재사용한다. 슬롯 생성 자체가 늦었다면 불변 이력에서 cutoff 이전 최신 버전을 찾는다.
 
-서버가 부여한 적용 시각은 클라이언트가 조작하지 못하게 한다. 설정 저장·온보딩은 짧은 트랜잭션에서 사용자 행을 직렬화한다. 정확히 09:00 경계의 미커밋 설정을 어느 시점에 유효화할지는 서비스의 쓰기/스케줄러 조정 계약으로 확정해야 한다. timestamp 필드만으로 실제 커밋 시점을 자동 재현한다고 주장하지 않는다.
+V11은 정확한 cutoff 경계에 공유 publication primitive를 제공한다. publisher는 fence를 다른 업무 행보다 먼저 잠그고 DB 시각으로 publication 시각을 정하며, 이미 seal된 cutoff보다 최소 1µs 뒤로만 게시할 수 있다. reader는 같은 writable READ COMMITTED transaction에서 fence를 seal한 뒤 다음 statement로 preference/config/candidate를 읽는다. 이 저장 경계만 구현됐고 계정·경험 producer와 selection worker는 아직 연결되지 않았다. timestamp 필드만으로 실제 커밋 시점을 자동 재현한다고 주장하지 않는다.
 
 ### 6.2 종료 상태와 날짜 경계
 
@@ -624,6 +629,8 @@ AI 분석은 저장 전 본문에 대응하는 임시 응답이다. 경험 최�
 LETTER는 안전 승인 전에는 candidate 쿼리에서 제외한다. 첫 승인·최종 준비가 완료될 때 moderation_status와 available_at을 함께 갱신한다. 이후 숨김/재시도로 available_at을 새 글처럼 반복 갱신하지 않는다. 직접 PRIVATE는 available_at=NULL이다.
 
 ### 8.3 매일 09:00의 선정
+
+**구현 경계:** 아래는 아직 연결되지 않은 selection worker의 제품 프로토콜이다. V11은 이를 위한 cutoff fence·설정 이력·점수 저장 primitive만 제공하며, 후보 선정·lease 회수·배달 orchestration이나 AI 성공을 구현·검증했다고 뜻하지 않는다.
 
 **1. 슬롯 구성.** 정시 cutoff와 수신 대상 사용자·불변 취향 버전을 해석한다. 지연 실행도 09:00을 사용하며 정시 이후 온보딩·새 후보는 제외한다. `daily_selections`를 INSERT하고 중복 PK면 기존 상태를 확인한다. 서비스 고정 반경은 작업의 radius_m으로 캡처한다.
 

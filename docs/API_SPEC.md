@@ -20,6 +20,8 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 
 **MOCK 숫자 주의:** `/v1/config` 예시의 반경 1000m, 중심 좌표, 토큰 TTL·파일/본문/작성량/페이지 제한은 로컬 mock 구성 예시이다. 실제 운영 수치를 임의 확정하지 않았다. 배달 시간 `09:00`, 시간대 `Asia/Seoul`, 4축의 유한 binary64 `[-1, 1]`, 카테고리 최대 3개는 이미 확정된 정책이다.
 
+**V11 구현 경계:** `fixed_score` 저장, 명시적 selection-config append 이력, cutoff publication fence는 내부 DB primitive로 구현·실제 Spring/PostgreSQL에서 검증됐다. 이는 새 공개 API나 설정 발행 관리자 endpoint/CLI가 아니며, 계정·경험 producer와 selection worker·AI/배달 orchestration은 아직 연결되지 않았다.
+
 ## 목차
 
 1. FE 요청 반영표와 ERD 차이
@@ -83,6 +85,8 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 | HTTP 204 | 본문이 없음. FE가 `response.json()`을 호출하지 않음 |
 
 원래 DB enum과 API enum은 구분하며 raw Entity 전체를 직렬화하지 않는다. `/v1/config`의 숫자 제한은 모든 인스턴스와 FE가 같은 버전을 사용한다. 설정이 준비되지 않으면 503 `CONFIGURATION_UNAVAILABLE`로 실패하고 조용히 기본 반경을 넣지 않는다.
+
+`/v1/config`의 읽기 응답은 `selection_config_versions`의 내부 publisher가 아니다. 후자는 신뢰된 내부 경로에서만 명시적으로 append하며 자동 startup seed·기본 반경 추정·sealed cutoff 이하 backdate를 하지 않는다. DB는 과거 config row의 UPDATE/DELETE를 거절한다.
 
 ### 2.2 JSON·텍스트 검증
 
@@ -234,6 +238,8 @@ AI HTTP 연동의 backend-expected wire는 `AX-AI-WIRE-v2`의 flat 응답이다:
 서버의 접근 차단이 이미 내려받은 이미지·스크린샷까지 회수한다는 의미는 아니다. 이후의 API 접근과 불필요한 공유 캐시를 차단하는 범위다.
 
 ## 5. 수신함 상태·열람·필터·페이지
+
+**구현 경계:** 이 절의 일일 선정·수신함 상태 매핑은 제품/API 계약이다. V11은 이를 지탱하는 score/config-history/cutoff-fence 저장 primitive만 구현했으며, 실제 account·memory producer, selection worker, lease 회수, 후보/AI 계산 및 배달 orchestration은 아직 연결되지 않았다. 따라서 이 절을 실제 선정 API·AI 성공 또는 운영 정책 설정 완료로 해석하지 않는다.
 
 ### 5.1 DB 상태와 FE 상태의 매핑
 
@@ -403,6 +409,8 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 **고정 반경·제한·정기 배달 설정** · operationId: `getConfig` · 성공 `200`
 
 새 경로 채택 제안. 인증·초대 허용 계정이면 온보딩 전 조회 가능. 예시의1000m와 모든 제한/중심좌표는 MOCK 전용. 실제 운영값을 서버가 내려주며 누락 시503, FE가1000m를 추정해 사용하지 않는다.
+
+이 공개 읽기 endpoint는 selection config를 발행·예약·수정하지 않는다. V11의 config publisher는 HTTP endpoint나 운영 CLI가 아닌 내부 명시적 append interface이며, 실제 운영 반경·규칙을 자동으로 seed하지 않는다.
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
