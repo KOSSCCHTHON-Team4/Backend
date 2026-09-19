@@ -218,6 +218,29 @@ auto-rebind, reset, repair, flyway-only 또는 password provisioning 환경변�
 | `AI_SERVICE_TOKEN` | 실제 AI host가 shared `X-AI-Token` 인증을 요구/수용하도록 합의된 경우만 | `app.ai.service-token`. API는 nonblank일 때 모든 HTTP AI 요청에 `X-AI-Token`을 붙인다. DB/admin 비밀과 재사용하지 않는다. loopback만으로 인증되었다고 가정하지 않는다. provider API/Claude key는 AI host의 별도 비밀이며 이 파일에 넣지 않는다. |
 | `CORS_ALLOWED_ORIGINS` | TLS reverse proxy와 다른 browser origin이 필요한 경우만 | `app.cors.allowed-origins`; 정확한 origin의 comma-separated allowlist. 빈 값은 cross-origin 불허이고 wildcard는 기동 거절이다. |
 
+로컬 프런트엔드의 두 origin을 허용하려면 Compose가 읽는 `.env`에 다음 값을 설정한다.
+이 값은 기존 허용 목록 전체를 대체한다. `localhost:3000` 등도 필요하면 같은 목록에 명시한다.
+
+```dotenv
+CORS_ALLOWED_ORIGINS=http://localhost:8081,http://localhost:8082
+```
+
+origin은 `scheme://host:port`이며 경로나 끝의 `/`를 붙이지 않는다. `localhost`와 `127.0.0.1`,
+HTTP와 HTTPS, 서로 다른 포트는 각각 다른 origin이다. 공백이 있는 쉼표 구분 목록도 처리한다.
+설정은 **API 부팅 시** 적용되며 실행 중 자동 갱신하지 않는다. Compose `.env`를 변경했다면
+API 컨테이너를 **재생성**해야 한다. 기존 컨테이너의 단순 restart는 환경변수를 갱신하지 않는다.
+
+Gradle로 직접 실행할 때 Spring Boot가 `.env` 파일을 자동으로 읽는 것은 아니다.
+실행 프로세스에 환경변수를 전달한다.
+
+```bash
+CORS_ALLOWED_ORIGINS='http://localhost:8081,http://localhost:8082' ./gradlew bootRun
+```
+
+환경변수를 생략하면 `local`/`ci`는 기존 `http://localhost:3000` 기본값을 사용하고,
+`prod`는 교차 출처 요청을 허용하지 않는다. 명시적인 빈 값은 모든 프로필에서 교차 출처 요청을
+허용하지 않는다. CORS 허용은 JWT 인증을 생략하거나 cookie credentials를 허용한다는 뜻이 아니다.
+
 ### 4.5 O — 현재 구현의 선택 override
 
 O의 현재 기본값은 운영 승인값이 아니다. 빈 `MATCH_*`는 현재 record 기본값을 사용하며,
