@@ -4876,10 +4876,8 @@ paths:
       summary: 현재 사용자 권한 내 지도 핀
       tags:
       - Places
-      description: bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. 자동 인접 병합·업체
-        검색은 없고, placeId를 명시한 경우에만 기존 가시 핀을 재사용한다. FE의 시각 클러스터는 식별자와 권한을 바꾸지 않는다. label이 없으면 null이다. id ASC 커서에 bbox를
-        귀속한다.
-      x-contract-status: PROPOSED
+      description: 구현된 지도 조회. bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한다. 허용 query는 bbox, cursor, limit뿐이며, bbox는 정확히 한 번 필수이고 존재하는 cursor/limit도 각각 한 번이어야 한다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. profile은 requester-scoped 적격 DIRECT 경험만 사용하며 global Place profile/cache를 읽지 않는다. PostgreSQL UUID ASC cursor는 사용자·경로·정규 bbox·filter=none·effective limit·최초 상한에 서명으로 귀속된다.
+      x-contract-status: IMPLEMENTED
       x-onboarding-required: true
       responses:
         '200':
@@ -4902,9 +4900,19 @@ paths:
                   value:
                     items:
                     - id: 20000000-0000-4000-8000-000000000001
+                      label: null
                       lat: 37.6109
                       lng: 126.9977
-                      label: null
+                      naverTitle: 예시 카페
+                      naverAddress: 서울특별시 예시구
+                      categoryCode: CAFE
+                      categorySource: NAVER
+                      reviewCount: 1
+                      vibe:
+                        crowdLevel: -0.3333333333333333
+                        spatialFeel: -0.3333333333333333
+                        companyFit: 0.3333333333333333
+                        stayStyle: -0.3333333333333333
                       memoryCount: 2
                     pageInfo:
                       nextCursor: null
@@ -5001,7 +5009,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '503':
-          description: SERVICE_UNAVAILABLE
+          description: CONFIGURATION_UNAVAILABLE, SERVICE_UNAVAILABLE
           headers:
             Cache-Control:
               schema:
@@ -5021,6 +5029,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
               examples:
+                CONFIGURATION_UNAVAILABLE:
+                  value:
+                    code: CONFIGURATION_UNAVAILABLE
+                    message: 서비스 설정을 불러올 수 없습니다
+                    retryAfterSeconds: null
+                    fieldErrors: []
+                    requestId: 80000000-0000-4000-8000-000000000001
                 SERVICE_UNAVAILABLE:
                   value:
                     code: SERVICE_UNAVAILABLE
@@ -5029,7 +5044,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '400':
-          description: INVALID_CURSOR, CURSOR_CONTEXT_MISMATCH, INVALID_REQUEST, INVALID_BBOX
+          description: INVALID_CURSOR, CURSOR_CONTEXT_MISMATCH, INVALID_REQUEST, INVALID_BBOX. 빈/공백 cursor·변조·만료·다른 사용자 cursor는 INVALID_CURSOR이고, 유효 cursor의 bbox/effective limit 변경은 CURSOR_CONTEXT_MISMATCH다.
           headers:
             Cache-Control:
               schema:
@@ -5063,14 +5078,18 @@ paths:
                     code: INVALID_REQUEST
                     message: 요청 형식이 올바르지 않습니다
                     retryAfterSeconds: null
-                    fieldErrors: []
+                    fieldErrors:
+                    - field: bbox
+                      reason: REQUIRED
                     requestId: 80000000-0000-4000-8000-000000000001
                 INVALID_BBOX:
                   value:
                     code: INVALID_BBOX
                     message: 지도 조회 범위가 올바르지 않습니다
                     retryAfterSeconds: null
-                    fieldErrors: []
+                    fieldErrors:
+                    - field: bbox
+                      reason: INVALID_VALUE
                     requestId: 80000000-0000-4000-8000-000000000001
         default:
           description: 예상하지 못한 오류도 동일 ApiError 형식. 실제 성공/실패는 HTTP 상태를 따른다.
@@ -5082,21 +5101,21 @@ paths:
       - name: bbox
         in: query
         required: true
-        description: westLng,southLat,eastLng,northLat. 위경도범위·west<east/south<north 서버검증. 반자오선횡단은MVP지원안함.
+        description: 정확히 한 번. URL decode 뒤 westLng,southLat,eastLng,northLat의 네 finite decimal binary64이며 lng [-180,180], lat [-90,90], west<east, south<north. 경계 포함. +/지수/NaN/Infinity/빈·여분 성분/반자오선 횡단은 INVALID_BBOX.
         schema:
           type: string
           pattern: ^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$
       - name: cursor
         in: query
         required: false
-        description: opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다.
+        description: opaque signed cursor. 첫 페이지에서는 생략; 빈/공백은 INVALID_CURSOR이다. 사용자·/v1/places·pg-uuid-asc·정규 bbox·filter=none·effective limit·최초 상한에 귀속하며 continuation은 최초 expiry를 보존한다.
         schema:
           type: string
           minLength: 1
       - name: limit
         in: query
         required: false
-        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 10진 양의 integer, 1..maxMapPageLimit. 생략 시 defaultPageLimit이며 clamp하지 않는다.
         schema:
           type: integer
           minimum: 1
@@ -5399,10 +5418,12 @@ paths:
       summary: 열람 가능한 경험 신고 접수
       tags:
       - Reports
-      description: 사유 코드는 운영 초안이다. reason은 기존 text 열에 저장하고 details는 별도 nullable 열을 제안한다. 같은 사용자·원문의 새로운 신고는 허용하되
-        동일 요청 키의 재시도는 기존 접수증을 반환한다. OPEN은 접수 상태이지 숨김 완료가 아니다. 운영자 도구는 별도 계약이다. 완료된 요청을 재확인할 때 원문이 이후 숨겨졌어도 본인 접수증만
-        반환할 수 있다.
-      x-contract-status: PROPOSED
+      description: >-
+        정확히 하나의 UUID Idempotency-Key 헤더가 필요하고 query parameter는 허용하지 않는다. 신규 요청은 현재 ACTIVE·온보딩 완료 신고자와 현재 열람 가능한 원문을 확인해
+        최초 OPEN 접수증을 201으로 만든다. details는 앞뒤 공백 제거 후 빈 값이면 null로 정규화한다. 같은 정규화 payload의 완료 재시도는 최초 접수증을 불변으로 200 재생하고,
+        다른 payload는 409 IDEMPOTENCY_KEY_REUSED다. 완료 재생에서도 현재 계정 접근 권한은 확인하지만 완료된 접수증의 현재 원문 열람 자격은 다시 확인하지 않는다.
+        새 키의 별도 신고는 허용한다. 신고 조회·검토·종결·숨김 등 운영자 도구는 이 참여자 접수 API에 포함되지 않는다.
+      x-contract-status: REPORT_SUBMISSION_C2_IMPLEMENTED
       x-onboarding-required: true
       responses:
         '201':
@@ -5429,7 +5450,7 @@ paths:
                     status: OPEN
                     createdAt: '2026-09-20T10:07:00+09:00'
         '200':
-          description: 같은 Idempotency-Key의 완료된 요청 재확인. 새 객체를 생성하지 않음
+          description: 같은 Idempotency-Key와 정규화 payload의 완료 재확인. 최초 OPEN 접수증을 변경 없이 반환하고 새 객체를 생성하지 않음
           headers:
             Cache-Control:
               schema:
@@ -5537,7 +5558,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '503':
-          description: SERVICE_UNAVAILABLE
+          description: SERVICE_UNAVAILABLE, CONFIGURATION_UNAVAILABLE
           headers:
             Cache-Control:
               schema:
@@ -5565,7 +5586,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '400':
-          description: INVALID_JSON, DUPLICATE_JSON_KEY, INVALID_REQUEST, IDEMPOTENCY_KEY_REQUIRED
+          description: INVALID_JSON, DUPLICATE_JSON_KEY, INVALID_REQUEST (query parameter, 중복/쉼표 포함/잘못된 Idempotency-Key), IDEMPOTENCY_KEY_REQUIRED
           headers:
             Cache-Control:
               schema:
@@ -5712,34 +5733,6 @@ paths:
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
-        '429':
-          description: RATE_LIMITED
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-              description: 개인 응답은 private, no-store
-            X-Request-Id:
-              schema:
-                type: string
-              description: 서버 추적 식별자
-            Retry-After:
-              schema:
-                type: string
-                pattern: ^[0-9]+$
-              description: 재시도 가능한 경우에만 남은 초. body retryAfterSeconds와 일치
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-              examples:
-                RATE_LIMITED:
-                  value:
-                    code: RATE_LIMITED
-                    message: 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요
-                    retryAfterSeconds: null
-                    fieldErrors: []
-                    requestId: 80000000-0000-4000-8000-000000000001
         default:
           description: 예상하지 못한 오류도 동일 ApiError 형식. 실제 성공/실패는 HTTP 상태를 따른다.
           content:
@@ -5750,7 +5743,7 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: 직접 생성 재시도에 유지하는 UUID. 사용자+HTTP 메서드+경로에 귀속. 같은 키의 다른 payload는409. 좋아요에는 사용하지 않음.
+        description: 정확히 하나의 UUID. 사용자+HTTP 메서드+경로에 귀속하며 같은 정규화 payload의 완료 재시도는 최초 OPEN 접수증을 200으로 재생한다. 다른 payload는409. 누락은 IDEMPOTENCY_KEY_REQUIRED, 중복·쉼표 포함·잘못된 UUID는 INVALID_REQUEST.
         schema:
           type: string
           format: uuid
@@ -7006,10 +6999,15 @@ components:
         보관함 목록 이동.
     PlacePin:
       type: object
+      description: requester-visible map pin. memoryCount와 profile aggregate는 서로 다른 authorized set에서 계산된다.
       properties:
         id:
           type: string
           format: uuid
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
         lat:
           type: number
           minimum: -90
@@ -7018,19 +7016,68 @@ components:
           type: number
           minimum: -180
           maximum: 180
-        label:
+        naverTitle:
           anyOf:
           - type: string
           - type: 'null'
+        naverAddress:
+          anyOf:
+          - type: string
+          - type: 'null'
+        categoryCode:
+          anyOf:
+          - $ref: '#/components/schemas/PlaceCategoryCode'
+          - type: 'null'
+        categorySource:
+          anyOf:
+          - type: string
+            enum: [NAVER, REVIEWS]
+          - type: 'null'
+        reviewCount:
+          type: integer
+          minimum: 0
+        vibe:
+          anyOf:
+          - $ref: '#/components/schemas/VibeVector'
+          - type: 'null'
         memoryCount:
           type: integer
+          format: int64
           minimum: 1
       required:
       - id
+      - label
       - lat
       - lng
-      - label
+      - naverTitle
+      - naverAddress
+      - categoryCode
+      - categorySource
+      - reviewCount
+      - vibe
       - memoryCount
+      additionalProperties: false
+    VibeVector:
+      type: object
+      description: PlaceResponse.vibe의 네 profile 축. zero 같은 보조 JSON 필드는 없다.
+      properties:
+        crowdLevel:
+          type: number
+          minimum: -1
+          maximum: 1
+        spatialFeel:
+          type: number
+          minimum: -1
+          maximum: 1
+        companyFit:
+          type: number
+          minimum: -1
+          maximum: 1
+        stayStyle:
+          type: number
+          minimum: -1
+          maximum: 1
+      required: [crowdLevel, spatialFeel, companyFit, stayStyle]
       additionalProperties: false
     PlacePage:
       type: object
@@ -7044,8 +7091,7 @@ components:
       required:
       - items
       - pageInfo
-      additionalProperties: false
-      description: 현재 사용자에게 보이는 경험이 1개 이상인 내부 핀만 반환. 전체 공간/미수신 글의 개수를 반환하지 않는다.
+      description: 구현된 지도 page. 현재 사용자에게 보이는 경험이 1개 이상인 내부 핀만 반환하며, `hasMore == (nextCursor != null)`이다. 전체 공간/미수신 글/global profile count를 반환하지 않는다.
     ReportReason:
       type: string
       enum:
@@ -7069,6 +7115,7 @@ components:
           anyOf:
           - type: string
           - type: 'null'
+        description: 앞뒤 공백 제거 후 빈 값은 null로 정규화하며, 현재 서비스 설정의 reportDetailsMaxCodePoints 코드 포인트 제한을 적용한다.
       required:
       - memoryId
       - reason

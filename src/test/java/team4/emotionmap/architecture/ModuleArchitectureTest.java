@@ -59,7 +59,7 @@ class ModuleArchitectureTest {
                     "memory.Memory",
                     "memory.MemoryAccessService", "memory.MemoryCategory", "memory.MemoryCategoryRepository",
                     "memory.MemoryRepository", "memory.MemoryReadAccess"),
-            "report", List.of("account.AccountAccessService", "account.User",
+            "report", List.of("account.AccountAccessService", "account.User", "account.UserRepository",
                     "memory.MemoryAccessService", "memory.Memory"));
     private static final JavaClasses PRODUCTION_CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())

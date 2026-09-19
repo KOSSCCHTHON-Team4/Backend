@@ -107,6 +107,7 @@
 - 로그인만 무인증이며 다른 참여자 API는 Bearer 토큰과 ACTIVE 초대 계정을 요구합니다. 온보딩 전 허용 경로는 명세서에서 별도로 정의합니다.
 - 식별자는 UUID 문자열, `preferenceVersion`은 10진 문자열입니다. 목록 응답은 `{items, pageInfo}`, 공통 오류는 `code`를 기준으로 처리합니다.
 - 이미지 업로드는 단 하나의 UUID `Idempotency-Key`를 요구합니다. 같은 소유자·동일 원본 바이트의 완료 요청은 저장된 영수증을 재생하고, 새 저장은 `201`, 재생은 `200`입니다. 다른 경로·다른 원본·다른 사용자의 일반 멱등성 계약을 이 설명으로 확대하지 않습니다.
+- 신고 접수는 query parameter 없이 정확히 하나의 UUID `Idempotency-Key`를 요구합니다. 최초 접수는 `201`의 `OPEN` 영수증이고, 같은 정규화 payload의 완료 재시도는 그 영수증을 `200`으로 재생하며 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`입니다. 재생에도 현재 ACTIVE·온보딩 접근 권한은 확인하지만 완료 영수증의 원문 열람 자격은 다시 확인하지 않습니다.
 - 좋아요는 범용 응답 캐시와 구분합니다. 최초 성공에서만 사본 ID를 반환하고, 중복은 `200 ALREADY_COPIED`와 사본 ID `null`로 응답하는 안입니다.
 - 이미지는 선행 업로드한 `imageId`를 경험에 첨부합니다. 이미지 영수증은 STAGED의 미만료 상태와 ATTACHED를 재생할 수 있고, 만료된 STAGED/EXPIRED는 `410 IMAGE_UPLOAD_EXPIRED`입니다. 경험 조회는 Bearer 인증·경험 접근 검사를 먼저 통과한 뒤 바이너리 스트림을 받으며 토큰·storage key를 URL에 넣지 않습니다.
 
@@ -120,9 +121,9 @@
 | 계정 | 이메일·비밀번호 로그인, DB 영속 로그인 제한, 안전한 내부 USER 공급 CLI, ACTIVE 계정·온보딩 Guard, 위치 최초 설정, 취향 버전 변경 |
 | 경험·장소 | 수동 4축·카테고리 저장, 신규 핀/가시 핀 재사용, 권한 기반 조회, 소프트 삭제 |
 | 수신·좋아요 | 기존 수신 목록·최초 읽음, 독립 PRIVATE·분류·파일 복사와 일회성 좋아요 |
-| 이미지·신고 | 이미지 단일 multipart·영속 요청 키/영수증 재생, 본인 임시 업로드 첨부, 접근 검사 뒤의 경험 이미지 스트림, 열람 가능한 경험 신고 |
+| 이미지·신고 | 이미지 단일 multipart·영속 요청 키/영수증 재생, 본인 임시 업로드 첨부, 접근 검사 뒤의 경험 이미지 스트림, 열람 가능한 경험의 C2 신고 접수·불변 OPEN 영수증 재생 |
 
-정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·메모리·신고의 전체 요청 멱등성·공개 운영 도구는 아직 완성하지 않았습니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
+정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·메모리의 전체 요청 멱등성, 그리고 신고 조회·검토·종결·숨김을 포함한 공개 운영 도구는 아직 완성하지 않았습니다. 신고는 참여자 제출 C2 범위만 구현됐으며, 전체 L09 또는 운영 도구가 완료됐다는 뜻이 아닙니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
 
 직접 생성은 명시적 수동 입력만 지원하며 분류 상태는 `NOT_RUN`, 출처는 `USER`입니다. 안전 검사는 `PENDING`, `available_at`은 NULL이므로 새 LETTER를 자동 승인·배달하지 않습니다. 유효성을 확인할 AI 어댑터가 없는 `analysisToken`은 거절합니다.
 
@@ -186,6 +187,7 @@ DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `ps
 - 프로필: `SPRING_PROFILES_ACTIVE=local|ci|prod`. `ci`는 DB 없는 테스트용이지 독립적인 앱 부팅용이 아닙니다.
 - JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 root는 `APP_UPLOAD_DIR`로 설정합니다. 이미지 요청 lease는 양수 ISO-8601 `Duration`인 `REQUEST_COORDINATION_LEASE_DURATION`, 정리 주기는 양수 ISO-8601 `Duration`인 `IMAGE_CLEANUP_INTERVAL`, 정리 배치는 양의 정수 `IMAGE_CLEANUP_BATCH_SIZE`로 각각 명시합니다. 이 값들에는 운영 기본값이 없으며 누락·무효면 새 이미지 쓰기/새 요청 선점 또는 정리가 보존 방향으로 닫힙니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
 - 토큰 TTL은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS` 하나로 설정합니다. 브라우저 origin은 `CORS_ALLOWED_ORIGINS`의 정확한 allowlist로 지정하며 운영 FE 주소를 추측해 허용하지 않습니다.
+- 지도 cursor TTL은 `CURSOR_TTL`로 명시한다. 양의 Spring `Duration`만 허용하고 bare numeral 단위는 초이며 운영 기본값은 없다. 누락·blank·0·음수 또는 expiry 계산 overflow면 구현된 `GET /v1/places` 요청만 `CONFIGURATION_UNAVAILABLE`(503)으로 fail-closed 된다. 첫 page의 expiry는 epoch second로 올림되어 TTL보다 일찍 만료하지 않고(추가 시간 1초 미만), continuation은 그 최초 expiry를 재사용한다. 이 설정이 다른 목록 pagination이나 auth/analysis/image TTL에 적용된다고 가정하지 않는다.
 - prod는 실제 AI provider와 분석·안전 검사·동률 평가 구현이 없으면 기동을 거부합니다. 현재 mock 구현만으로 운영 준비가 완료되었다고 판단하지 않습니다.
 - 실행 후 [Swagger UI](http://localhost:8080/swagger-ui.html)와 [현재 OpenAPI JSON](http://localhost:8080/v3/api-docs)을 확인할 수 있습니다. 최신 계약 YAML이 자동으로 서버에 적용되는 것은 아닙니다.
 
