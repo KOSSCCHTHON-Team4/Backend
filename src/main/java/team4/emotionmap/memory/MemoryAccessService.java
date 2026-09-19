@@ -4,6 +4,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.contracts.memory.ContentStatus;
@@ -20,9 +21,20 @@ public class MemoryAccessService {
     public Memory requireReadable(UUID userId, UUID memoryId) {
         Memory memory = memoryRepository.findById(memoryId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found"));
+        return requireReadable(userId, memory);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Memory requireReadableForUpdate(UUID userId, UUID memoryId) {
+        Memory memory = memoryRepository.findByIdForUpdate(memoryId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found"));
+        return requireReadable(userId, memory);
+    }
+
+    private Memory requireReadable(UUID userId, Memory memory) {
         boolean owner = userId != null && userId.equals(memory.getOwnerId());
         boolean recipient = !owner && userId != null && memory.getDistributionType() == DistributionType.LETTER
-                && memoryReadAccess.hasDelivery(userId, memoryId);
+                && memoryReadAccess.hasDelivery(userId, memory.getId());
         if (!owner && !recipient) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found");
         }

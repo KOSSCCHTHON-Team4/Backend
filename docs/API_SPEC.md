@@ -121,13 +121,13 @@ FE는 `code`로 분기하고 `message`를 파싱하지 않는다. 에러 객체 
 
 ### 2.4 생성 재시도
 
-`POST /v1/memories`, `POST /v1/images`, `POST /v1/reports`에는 **[계약 제안] `Idempotency-Key: <UUID>`를 필수**로 둔다. FE는 한 번의 의도된 제출에 키 하나를 만들고, 응답 유실·시간 초과 때 **동일 키·동일 payload**를 재전송한다. 내용을 의도적으로 바꾸면 새 키를 사용한다.
+`POST /v1/reports`는 현재 **단 하나의 `Idempotency-Key: <UUID>`**를 필수로 구현한다. 한 번의 의도된 제출에는 키 하나를 사용하고, 응답 유실·시간 초과 때 **동일 키·정규화 뒤 동일 payload**를 재전송한다. `details`는 앞뒤 공백을 제거하고 비면 null로 정규화하므로 그 둘은 같은 요청이다. 내용을 의도적으로 바꾸면 새 키를 사용한다.
 
-서버는 사용자+메서드+경로+키를 고유하게 관리하고 요청 정규화 해시를 비교한다. 첫 완료는201, 같은 요청의 완료 재확인은200이다. 다른 payload면409 `IDEMPOTENCY_KEY_REUSED`, 실행 중이면409 `REQUEST_IN_PROGRESS`와 재시도 안내다. 업로드 지문은 원본 요청 파일 바이트를 기준으로 하며 처리 후 인코딩 결과로 키 동등성을 바꾸지 않는다.
+신고 키는 사용자+메서드+경로에 귀속해 요청 지문을 비교한다. 최초 완료는 `201`, 같은 정규화 요청의 완료 재확인은 최초 `OPEN` 접수증 그대로 `200`, 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`다. 새 키의 동일 사용자·원문 신고는 별도 접수를 만들 수 있으며, 같은 사용자·원문의 UNIQUE 정책이나 자동 숨김 정책은 없다. 처리 중인 동일 요청은 `409 REQUEST_IN_PROGRESS`다.
 
-완료 기록 확인은 만료된 분석토큰·이미 소비한 imageId 검사보다 먼저 수행한다. 완료했던 경험이 삭제됐으면410이고 새 경험을 만들지 않는다. 완료 업로드가 만료됐으면410이며 명시적 새 업로드를 유도한다. 접수했던 신고는 원문이 나중에 숨겨져도 본인에게 접수증만 재반환할 수 있다.
+완료된 신고를 재생할 때도 현재 ACTIVE 계정과 온보딩 접근 권한은 확인한다. 반면 이미 완료된 접수증에는 현재 원문의 열람 가능 여부를 다시 적용하지 않으므로, 원문이 나중에 숨겨지거나 삭제되어도 본인에게 불변 접수증만 재반환한다. 신규 제출은 현재 열람 가능한 원문만 접수한다. 신고에는 query parameter를 붙일 수 없고, 하나가 있으면 `400 INVALID_REQUEST`다.
 
-MVP의 요청키 보존 범위/정리 시점은 운영 계약이다. 최소한 테스트 운영과 재시도 기간에는 완료 키를 보존한다. 키 보존이 끝났다고 무조건 자동 재생성하는 FE 재시도는 금지한다. 저장소에는 원문 응답 전체 대신 자원 종류·ID·요청 지문만 보관하고 현재 접근 상태를 재검사한다.
+`POST /v1/memories`의 요청 키 계약은 여전히 아래 제품 계약 제안 범위다. 이미지 업로드의 별도 구현 범위는 8.10을 따른다. 요청 키 보존·정리 시점은 운영 계약이며, 저장소는 원문 응답 전체 대신 자원 종류·ID·요청 지문만 보관한다.
 
 **좋아요에는 이 범용 응답 캐시를 사용하지 않는다.** 자연 키인 `deliveryId`와 `liked_at`이 중복 방지 기준이다. 사본ID를 포함한 성공 응답을 지속 저장하면 원문·사본 비연결 정책과 충돌한다.
 
@@ -321,11 +321,11 @@ placeId 없이 직접 경험을 만들면 새 Place를 생성하고 label은 nul
 
 ### 7.2 신고 및 운영 도구
 
-신고 사유는 **SPAM / ABUSE / SEXUAL_CONTENT / VIOLENCE_OR_DANGEROUS_CONTENT / PERSONAL_INFORMATION / COPYRIGHT / OTHER**를 초안으로 제안한다. reason은 코드, details는 선택 설명이다. OTHER에서 설명을 필수로 할지는 운영 합의 사항이다.
+신고 사유는 **SPAM / ABUSE / SEXUAL_CONTENT / VIOLENCE_OR_DANGEROUS_CONTENT / PERSONAL_INFORMATION / COPYRIGHT / OTHER**다. reason은 코드이고 details는 선택 설명이다. `POST /v1/reports` 접수만 현재 구현되어 있으며, details는 앞뒤 공백을 제거하고 비면 null로 정규화한 뒤 현재 서비스 설정의 코드 포인트 제한을 적용한다. 필수 설정이 없거나 유효하지 않으면 신규 접수는 `503 CONFIGURATION_UNAVAILABLE`다.
 
-`reports.reason`에 코드를 저장할 수 있다. details를 별도로 보관하려면 nullable 열을 추가한다. 같은 사람의 새로운 신고를 UNIQUE로 막지는 않고, 동일 제출의 네트워크 재시도만 요청 키로 구분한다.
+같은 사람의 새로운 신고는 UNIQUE로 막지 않고 새 요청 키로 별도 접수한다. 같은 키는 단 하나의 UUID여야 하며, 중복 헤더·쉼표를 포함한 값·잘못된 UUID·query parameter는 `400`이다. 같은 정규화 payload의 완료 재시도는 최초 `OPEN` 접수증을 `200`으로 재생하고, 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`다.
 
-POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제한된 도구로 신고 조회·검토·종결, 특정 원문 숨김, 계정 접근 제한을 수행할 수 있어야 한다. **이 OpenAPI는 참여자용 22개 API이며 관리자 기능이 구현됐다는 뜻은 아니다.** 운영 HTTP API 또는 제한된 CLI를 정하고, 관리자 인가·처리 이력·보존 정책을 초대 테스트 전에 합의해야 한다.
+POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제한된 도구로 신고 조회·검토·종결, 특정 원문 숨김, 계정 접근 제한을 수행할 수 있어야 한다. **현재 구현에는 참여자 신고 접수만 포함되며, 이 OpenAPI는 관리자 기능이나 운영 HTTP API·제한된 CLI가 구현됐다는 뜻이 아니다.** 관리자 인가·처리 이력·보존 정책은 초대 테스트 전에 합의해야 한다.
 
 독립 PRIVATE를 원문 ID로 일괄 회수할 수 없다는 기존 제약은 유지한다.
 
@@ -1563,13 +1563,15 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 
 ### 8.22 `POST /v1/reports`
 
-**열람 가능한 경험 신고 접수** · operationId: `createReport` · 성공 `201`
+**열람 가능한 경험 신고 접수** · operationId: `createReport` · 최초 성공 `201`, 완료 재생 `200`
 
-사유 코드는 운영 초안이다. reason은 기존 text 열에 저장하고 details는 별도 nullable 열을 제안한다. 같은 사용자·원문의 새로운 신고는 허용하되 동일 요청 키의 재시도는 기존 접수증을 반환한다. OPEN은 접수 상태이지 숨김 완료가 아니다. 운영자 도구는 별도 계약이다. 완료된 요청을 재확인할 때 원문이 이후 숨겨졌어도 본인 접수증만 반환할 수 있다.
+`POST /v1/reports`는 query parameter를 받지 않는다. 정확히 하나의 UUID `Idempotency-Key` 헤더가 필요하며, 헤더 누락은 `400 IDEMPOTENCY_KEY_REQUIRED`, 중복 헤더·쉼표 포함 값·잘못된 UUID 또는 query parameter는 `400 INVALID_REQUEST`다. details는 앞뒤 공백 제거 후 빈 값이면 null로 정규화하고 현재 서비스 설정의 코드 포인트 제한을 적용한다.
+
+신규 제출은 현재 ACTIVE·온보딩 완료 신고자와 현재 열람 가능한 원문을 확인해 최초 `OPEN` 접수증을 만든다. 완료 재생도 현재 ACTIVE·온보딩 접근 권한을 확인하지만 완료된 접수증의 원문 열람 자격은 다시 확인하지 않는다. 따라서 원문이 나중에 숨겨지거나 삭제되어도 본인에게 최초 접수증을 `200`으로 재반환한다. 같은 정규화 payload는 같은 접수증을 재생하고 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`다. 운영자 도구는 별도 미구현 범위다.
 
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|
-| header | `Idempotency-Key` | 예 | uuid — 직접 생성 재시도에 유지하는 UUID. 사용자+HTTP 메서드+경로에 귀속. 같은 키의 다른 payload는409. 좋아요에는 사용하지 않음. |
+| header | `Idempotency-Key` | 예 | 정확히 하나의 uuid — 사용자+HTTP 메서드+경로에 귀속. 동일 정규화 payload의 완료 재시도는 최초 OPEN 접수증을 200으로 재생하고, 다른 payload는409. |
 
 **요청 스키마:** `ReportRequest`
 
@@ -1597,7 +1599,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 }
 ```
 
-**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`, `RATE_LIMITED`。
+**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `CONFIGURATION_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`。
 
 ---
 
@@ -2089,7 +2091,7 @@ DELIVERED이면 delivery 존재(삭제 tombstone 포함). 그 외 delivery=null.
 |---|---|---|---|
 | `memoryId` | uuid | 예 |  |
 | `reason` | ReportReason | 예 |  |
-| `details` | string / null | 아니오 |  |
+| `details` | string / null | 아니오 | 앞뒤 공백 제거 후 빈 값은 null. 현재 서비스 설정의 `reportDetailsMaxCodePoints` 코드 포인트 제한 적용. |
 
 ### `ReportResponse`
 
