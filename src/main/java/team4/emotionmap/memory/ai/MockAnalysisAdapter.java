@@ -6,6 +6,7 @@ import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import team4.emotionmap.contracts.ai.AnalysisEnrichment;
 import team4.emotionmap.contracts.ai.AnalysisPort;
 import team4.emotionmap.contracts.ai.AnalysisProvenance;
 import team4.emotionmap.contracts.ai.AnalysisRequest;
@@ -58,7 +59,7 @@ public class MockAnalysisAdapter implements AnalysisPort {
                 axisValue(content, AtmosphereAxis.COMPANY_FIT),
                 content.contains(PARTIAL_MARKER) ? null : axisValue(content, AtmosphereAxis.STAY_STYLE));
         List<PlaceCategoryCode> categories = content.contains(UNCLASSIFIED_MARKER) ? List.of() : categoriesOf(content);
-        return AnalysisResult.of(atmospheres, categories, provenance);
+        return AnalysisResult.of(atmospheres, categories, provenance, enrichmentOf(content, atmospheres, categories));
     }
 
     /** 라벨 어간 사전. 양쪽 다 있으면 null(근거 상충), 하나만 있으면 그 값, 없으면 null. */
@@ -72,6 +73,39 @@ public class MockAnalysisAdapter implements AnalysisPort {
             AtmosphereAxis.SPATIAL_FEEL, new String[]{"탁 트인"},
             AtmosphereAxis.COMPANY_FIT, new String[]{"함께"},
             AtmosphereAxis.STAY_STYLE, new String[]{"잠깐"});
+
+    /**
+     * 기획 §8 부가 출력의 가짜 값: 근거 = 어간이 들어간 문장 조각, 태그 = 카테고리 라벨, 마스킹 = 전화번호·이메일 패턴,
+     * 안전 = {@code [[UNSAFE]]} 마커가 없을 때 true. 실제 모델 품질과 무관한 fixture 다.
+     */
+    static AnalysisEnrichment enrichmentOf(String content, AnalyzedAtmospheres atmospheres,
+                                           List<PlaceCategoryCode> categories) {
+        java.util.Map<String, String> evidence = new java.util.LinkedHashMap<>();
+        for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
+            Integer v = atmospheres.get(axis);
+            if (v == null) {
+                continue;
+            }
+            String[] stems = v == AtmosphereAxis.POSITIVE ? POSITIVE_STEMS.get(axis) : NEGATIVE_STEMS.get(axis);
+            for (String stem : stems) {
+                int at = content.indexOf(stem);
+                if (at >= 0) {
+                    int from = Math.max(0, at - 6);
+                    int to = Math.min(content.length(), at + stem.length() + 6);
+                    evidence.put(axis.labelOf(v), content.substring(from, to).strip());
+                    break;
+                }
+            }
+        }
+        List<String> tags = categories.stream().map(PlaceCategoryCode::label).toList();
+        String masked = content
+                .replaceAll("01[016789]-?\\d{3,4}-?\\d{4}", "[전화번호]")
+                .replaceAll("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[이메일]");
+        boolean pii = !masked.equals(content);
+        boolean unsafe = content.contains("[[UNSAFE]]");
+        return new AnalysisEnrichment(evidence, tags, categories.isEmpty() ? null : 0.9, "ai",
+                masked, pii, !unsafe, unsafe ? "MOCK_UNSAFE" : null);
+    }
 
     private static Integer axisValue(String content, AtmosphereAxis axis) {
         boolean negative = containsAny(content, NEGATIVE_STEMS.get(axis));

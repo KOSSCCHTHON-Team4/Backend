@@ -16,12 +16,18 @@ import org.springframework.core.env.Environment;
 import team4.emotionmap.contracts.ai.AnalysisPort;
 import team4.emotionmap.contracts.ai.AnalysisRequest;
 import team4.emotionmap.contracts.ai.AnalysisResult;
+import team4.emotionmap.contracts.ai.MatchReasonPort;
+import team4.emotionmap.contracts.ai.MatchReasonRequest;
+import team4.emotionmap.contracts.ai.MatchReasonResult;
 import team4.emotionmap.contracts.ai.ModerationPort;
 import team4.emotionmap.contracts.ai.ModerationRequest;
 import team4.emotionmap.contracts.ai.ModerationResult;
 import team4.emotionmap.contracts.ai.PreferenceTieBreakPort;
+import team4.emotionmap.contracts.ai.PreferenceVerifyPort;
 import team4.emotionmap.contracts.ai.TieBreakRequest;
 import team4.emotionmap.contracts.ai.TieBreakResult;
+import team4.emotionmap.contracts.ai.VerifyRequest;
+import team4.emotionmap.contracts.ai.VerifyResult;
 
 class RuntimeSecurityGuardTest {
 
@@ -181,8 +187,9 @@ class RuntimeSecurityGuardTest {
     }
 
     private static ApplicationContextRunner guardRunner(Class<?> portConfiguration) {
+        // 기획 §7·§8 의 2차 판정·알림 문구 포트는 모든 시나리오에 실제(stub) 빈으로 공급한다.
         return new ApplicationContextRunner()
-                .withUserConfiguration(GuardConfiguration.class, portConfiguration);
+                .withUserConfiguration(GuardConfiguration.class, MatchingPortsConfiguration.class, portConfiguration);
     }
 
     private static String[] guardProperties(String jwtSecret, String signingSecret, String provider, String origin) {
@@ -344,6 +351,36 @@ class RuntimeSecurityGuardTest {
         @Bean
         PreferenceTieBreakPort preferenceTieBreakPort() {
             return new StubPreferenceTieBreakPort();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class MatchingPortsConfiguration {
+
+        @Bean
+        PreferenceVerifyPort preferenceVerifyPort() {
+            return new StubPreferenceVerifyPort();
+        }
+
+        @Bean
+        MatchReasonPort matchReasonPort() {
+            return new StubMatchReasonPort();
+        }
+    }
+
+    private static final class StubPreferenceVerifyPort implements PreferenceVerifyPort {
+
+        @Override
+        public VerifyResult verify(VerifyRequest request) {
+            throw new UnsupportedOperationException("Guard configuration fixture does not verify preferences");
+        }
+    }
+
+    private static final class StubMatchReasonPort implements MatchReasonPort {
+
+        @Override
+        public MatchReasonResult explain(MatchReasonRequest request) {
+            throw new UnsupportedOperationException("Guard configuration fixture does not explain matches");
         }
     }
 

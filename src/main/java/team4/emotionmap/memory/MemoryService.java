@@ -1,10 +1,11 @@
 package team4.emotionmap.memory;
 
+import java.time.Clock;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,23 +13,53 @@ import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.account.AccountAccessService;
 import team4.emotionmap.account.User;
 import team4.emotionmap.account.UserRepository;
+import team4.emotionmap.contracts.ai.AnalysisEnrichment;
+import team4.emotionmap.contracts.config.MatchingProperties;
+import team4.emotionmap.contracts.config.ServiceConfigSource;
+import team4.emotionmap.contracts.dictionary.CategorySelection;
+import team4.emotionmap.contracts.dictionary.PlaceCategoryCode;
+import team4.emotionmap.contracts.error.ContractError;
+import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.contracts.error.FieldError;
+import team4.emotionmap.contracts.geo.DistanceMeters;
+import team4.emotionmap.contracts.geo.GeoPoint;
+import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
+import team4.emotionmap.contracts.memory.AtmosphereSources;
+import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
+import team4.emotionmap.contracts.memory.CategoryAssignment;
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DataOrigin;
+import team4.emotionmap.contracts.memory.DistributionType;
+import team4.emotionmap.contracts.memory.ModerationStatus;
+import team4.emotionmap.contracts.memory.OriginKind;
+import team4.emotionmap.contracts.validation.TextRules;
 import team4.emotionmap.media.ImageStorageService;
 import team4.emotionmap.media.ImageUpload;
 import team4.emotionmap.media.ImageUploadService;
 import team4.emotionmap.media.StoredImage;
+import team4.emotionmap.memory.analysis.AnalysisReceipt;
+import team4.emotionmap.memory.analysis.AnalysisReceiptCodec;
+import team4.emotionmap.memory.analysis.AxisSourceResolver;
 import team4.emotionmap.memory.dto.MemoryCreateRequest;
 import team4.emotionmap.memory.dto.MemoryResponse;
+import team4.emotionmap.place.NaverCategoryMapper;
 import team4.emotionmap.place.Place;
 import team4.emotionmap.place.PlaceCategory;
 import team4.emotionmap.place.PlaceCategoryRepository;
 import team4.emotionmap.place.PlaceRepository;
-import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
-import team4.emotionmap.contracts.memory.AxisSource;
-import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
-import team4.emotionmap.contracts.memory.ContentStatus;
-import team4.emotionmap.contracts.memory.DataOrigin;
-import team4.emotionmap.contracts.memory.OriginKind;
 
+/**
+ * A05 직접 경험 생성(기획 §1 "[리뷰 작성] → /ai/analyze → Memory 저장 → Place 갱신").
+ * <ul>
+ *   <li>analysisToken 이 있으면 서명·사용자·본문(원문 또는 AI 마스킹 본문)·만료를 검증하고, 최종값과 AI 제안을 비교해
+ *       축/카테고리 출처(AI/USER)를 서버가 정한다. 없으면 USER/NOT_RUN.</li>
+ *   <li>카테고리: 네이버 등록 장소는 매핑이 우선. 미등록 장소는 요청 카테고리(사용자 확정) 그대로.</li>
+ *   <li>장소: placeId 지정 시 가시성·좌표 일치 확인. 미지정 시 네이버 상호명이 같은 근처 핀 또는 반경 20m 안 같은 카테고리
+ *       미등록 핀과 병합(기획 §5), 없으면 새 핀.</li>
+ *   <li>PRIVATE 는 저장 즉시 장소 프로필 재계산. LETTER 는 PENDING 으로 저장되고 커밋 뒤 안전 검사가 이어진다.</li>
+ * </ul>
+ */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MemoryService {
@@ -40,55 +71,96 @@ public class MemoryService {
     private final PlaceCategoryRepository placeCategoryRepository;
     private final ImageUploadService imageUploadService;
     private final ImageStorageService imageStorageService;
+    private final AnalysisReceiptCodec receiptCodec;
+    private final PlaceProfileService placeProfileService;
+    private final ServiceConfigSource serviceConfig;
+    private final MatchingProperties matching;
+    private final Clock clock;
 
     @Transactional
     public MemoryResponse create(UUID ownerId, MemoryCreateRequest request) {
         requireActiveOwner(ownerId);
-        if (request.analysisToken() != null) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Analysis tokens are not supported");
+        if (request.type() == null || request.atmospheres() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST");
         }
-        if (request.content() == null || request.content().isBlank() || request.type() == null
-                || request.atmospheres() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Content, type and atmospheres are required");
+        String content = TextRules.requireContent(request.content(),
+                serviceConfig.limits().memoryContentMaxCodePoints(), "content", ErrorCode.VALIDATION_ERROR);
+        Instant now = clock.instant();
+
+        AnalysisReceipt receipt = request.analysisToken() == null ? null
+                : receiptCodec.verify(request.analysisToken(), ownerId, content, now);
+
+        // 카테고리: 사용자 확정값(0~3). 네이버 카테고리가 있으면 그 매핑이 1슬롯이 된다.
+        List<PlaceCategoryCode> finalCodes = CategorySelection.validate("categoryCodes", request.categoryCodes());
+        PlaceCategoryCode naverMapped = NaverCategoryMapper.map(request.naverCategory()).orElse(null);
+        if (naverMapped != null && !finalCodes.contains(naverMapped)) {
+            List<PlaceCategoryCode> merged = new java.util.ArrayList<>();
+            merged.add(naverMapped);
+            for (PlaceCategoryCode c : finalCodes) {
+                if (merged.size() < PlaceCategoryCode.MAX_PER_MEMORY) {
+                    merged.add(c);
+                }
+            }
+            finalCodes = List.copyOf(merged);
         }
-        List<String> categoryCodes = request.categoryCodes();
-        if (categoryCodes == null || categoryCodes.size() > 3
-                || categoryCodes.stream().anyMatch(code -> code == null || code.isBlank())
-                || new HashSet<>(categoryCodes).size() != categoryCodes.size()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose up to three distinct category codes");
-        }
-        List<PlaceCategory> categories = categoryCodes.stream().map(code -> placeCategoryRepository.findByCode(code)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown category"))).toList();
-        Place place = resolvePlace(ownerId, request);
+        List<CategoryAssignment> assignments = AxisSourceResolver.resolveCategories(finalCodes,
+                receipt == null ? null : receipt.categories());
+        AtmosphereSources sources = AxisSourceResolver.resolveAxes(request.atmospheres(),
+                receipt == null ? null : receipt.atmospheres());
+
+        Place place = resolvePlace(ownerId, request, finalCodes.isEmpty() ? null : finalCodes.getFirst(), naverMapped);
         ImageUpload image = request.imageId() == null ? null
                 : imageUploadService.requireAttachable(ownerId, request.imageId());
+
+        AnalysisEnrichment e = receipt == null ? AnalysisEnrichment.NONE : receipt.enrichment();
+        boolean piiMasked = receipt != null && receipt.isMaskedSubmission(content);
+        PlaceCategoryCode predicted = receipt == null || receipt.categories().isEmpty() ? null : receipt.categories().getFirst();
+
         Memory memory = memoryRepository.save(Memory.builder()
-                .ownerId(ownerId).placeId(place.getId()).content(request.content())
+                .ownerId(ownerId).placeId(place.getId()).content(content)
                 .distributionType(request.type()).originKind(OriginKind.DIRECT)
                 .dataOrigin(DataOrigin.PARTICIPANT)
-                .placeLabelSnapshot(place.getLabel()).placeLat(place.getLat()).placeLng(place.getLng())
+                .placeLabelSnapshot(place.displayName()).placeLat(place.getLat()).placeLng(place.getLng())
                 .crowdLevel((short) request.atmospheres().crowdLevel())
                 .spatialFeel((short) request.atmospheres().spatialFeel())
                 .companyFit((short) request.atmospheres().companyFit())
                 .stayStyle((short) request.atmospheres().stayStyle())
-                .crowdSource(AxisSource.USER).spatialSource(AxisSource.USER)
-                .companySource(AxisSource.USER).staySource(AxisSource.USER)
-                .atmosphereAnalysisStatus(AtmosphereAnalysisStatus.NOT_RUN)
-                .categoryAnalysisStatus(CategoryAnalysisStatus.NOT_RUN)
+                .crowdSource(sources.crowdLevel()).spatialSource(sources.spatialFeel())
+                .companySource(sources.companyFit()).staySource(sources.stayStyle())
+                .atmosphereAnalysisStatus(receipt == null ? AtmosphereAnalysisStatus.NOT_RUN : receipt.atmosphereStatus())
+                .categoryAnalysisStatus(receipt == null ? CategoryAnalysisStatus.NOT_RUN : receipt.categoryStatus())
+                .analysisModel(receipt == null ? null : receipt.provenance().model())
+                .analysisPromptVersion(receipt == null ? null : receipt.provenance().promptVersion())
                 .imagePath(image == null ? null : image.getStoragePath())
                 .imageMediaType(image == null ? null : image.getMediaType())
                 .imageSizeBytes(image == null ? null : image.getSizeBytes())
+                .moderationStatus(request.type() == DistributionType.PRIVATE
+                        ? ModerationStatus.NOT_REQUIRED : ModerationStatus.PENDING)
+                .evidence(e.evidence().isEmpty() ? null : e.evidence())
+                .tags(e.tags().isEmpty() ? null : e.tags())
+                .categoryPred(predicted == null ? null : predicted.name())
+                .categoryConf(e.categoryConfidence())
+                .safe(e.safe())
+                .piiMasked(piiMasked)
+                .unsafeReason(e.unsafeReason())
+                .createdAt(now)
                 .build());
         if (image != null) {
             image.attach(memory.getId());
         }
-        for (int index = 0; index < categories.size(); index++) {
-            PlaceCategory category = categories.get(index);
+        for (CategoryAssignment a : assignments) {
+            PlaceCategory category = placeCategoryRepository.findByCode(a.code().name())
+                    .orElseThrow(() -> new IllegalStateException("Category seed missing: " + a.code()));
             memoryCategoryRepository.save(MemoryCategory.builder()
                     .id(new MemoryCategoryId(memory.getId(), category.getId()))
-                    .slotNo((short) (index + 1)).assignmentSource(AxisSource.USER)
+                    .slotNo((short) a.slotNo()).assignmentSource(a.source())
                     .labelSnapshot(category.getLabel()).taxonomyVersion(category.getTaxonomyVersion()).build());
         }
+        if (request.type() == DistributionType.PRIVATE) {
+            placeProfileService.recompute(place.getId()); // LETTER 는 안전 승인 시점에 반영한다.
+        }
+        log.info("memory created id={} type={} place={} analysis={} pii={}", memory.getId(), request.type(),
+                place.getId(), receipt != null, piiMasked);
         return MemoryResponse.from(memory);
     }
 
@@ -131,7 +203,10 @@ public class MemoryService {
                 .filter(candidate -> candidate.getOwnerId().equals(ownerId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found"));
         if (memory.getContentStatus() != ContentStatus.DELETED) {
-            memory.softDelete(Instant.now());
+            memory.softDelete(clock.instant());
+            if (PlaceProfileService.countsAsReview(memory.toBuilder().contentStatus(ContentStatus.ACTIVE).build())) {
+                placeProfileService.recompute(memory.getPlaceId());
+            }
         }
     }
 
@@ -141,30 +216,60 @@ public class MemoryService {
         AccountAccessService.requireActive(owner);
     }
 
-    private Place resolvePlace(UUID ownerId, MemoryCreateRequest request) {
-        Double lat = request.lat();
-        Double lng = request.lng();
-        if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)
-                || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid place coordinates");
+    /**
+     * 핀 결정. 명시 placeId → 가시성·좌표 일치 검사. 미지정 → (1) 네이버 상호명이 같은 근처 핀,
+     * (2) 미등록이면 반경 {@code mergeDistanceMeters} 안 같은 카테고리 핀과 병합, (3) 새 핀.
+     */
+    private Place resolvePlace(UUID ownerId, MemoryCreateRequest request, PlaceCategoryCode category,
+                               PlaceCategoryCode naverMapped) {
+        GeoPoint point = team4.emotionmap.contracts.validation.StrictValues.requireCoordinates(
+                request.lat(), request.lng(), "lat", "lng", ErrorCode.VALIDATION_ERROR);
+        if (request.placeId() != null) {
+            boolean visible = memoryRepository
+                    .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(request.placeId(), ContentStatus.ACTIVE).stream()
+                    .anyMatch(memory -> memoryAccessService.isReadable(ownerId, memory));
+            Place place = placeRepository.findById(request.placeId()).filter(p -> visible)
+                    .orElseThrow(() -> ContractError.of(ErrorCode.RESOURCE_NOT_FOUND));
+            if (place.getLat().doubleValue() != point.lat() || place.getLng().doubleValue() != point.lng()) {
+                throw ContractError.of(ErrorCode.PLACE_COORDINATE_MISMATCH,
+                        FieldError.invalid("lat"), FieldError.invalid("lng"));
+            }
+            return place;
         }
-        if (request.placeId() == null) {
-            String label = request.placeLabel();
-            return placeRepository.save(Place.builder().lat(lat).lng(lng)
-                    .label(label == null || label.isBlank() ? null : label.strip()).build());
+
+        double mergeRadius = matching.mergeDistanceMeters();
+        List<Place> nearby = placeRepository.findAllInBox(
+                point.lat() - mergeRadius / 111_320.0, point.lat() + mergeRadius / 111_320.0,
+                point.lng() - mergeRadius / (111_320.0 * Math.cos(Math.toRadians(point.lat()))),
+                point.lng() + mergeRadius / (111_320.0 * Math.cos(Math.toRadians(point.lat()))))
+                .stream().filter(p -> DistanceMeters.between(point, new GeoPoint(p.getLat(), p.getLng())) <= mergeRadius)
+                .toList();
+
+        if (request.hasNaverPlace()) {
+            String title = request.naverTitle().strip();
+            for (Place p : nearby) {
+                if (title.equals(p.getNaverTitle())) {
+                    return p;
+                }
+            }
+            Place created = placeRepository.save(Place.builder().lat(point.lat()).lng(point.lng())
+                    .label(normalizeLabel(request.placeLabel())).build());
+            created.attachNaver(title, request.naverAddress(), request.naverCategory(), naverMapped);
+            return created;
         }
-        boolean visible = memoryRepository
-                .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(request.placeId(), ContentStatus.ACTIVE).stream()
-                .anyMatch(memory -> memoryAccessService.isReadable(ownerId, memory));
-        if (!visible) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found");
+        // 미등록 장소: 20m 안 같은 카테고리의 미등록 핀이 있으면 병합(기획 §5)
+        if (category != null) {
+            for (Place p : nearby) {
+                if (!p.isNaverRegistered() && p.category() == category) {
+                    return p;
+                }
+            }
         }
-        Place place = placeRepository.findById(request.placeId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found"));
-        if (place.getLat().doubleValue() != lat.doubleValue()
-                || place.getLng().doubleValue() != lng.doubleValue()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Place coordinates do not match");
-        }
-        return place;
+        return placeRepository.save(Place.builder().lat(point.lat()).lng(point.lng())
+                .label(normalizeLabel(request.placeLabel())).build());
+    }
+
+    private static String normalizeLabel(String label) {
+        return label == null || label.isBlank() ? null : label.strip();
     }
 }

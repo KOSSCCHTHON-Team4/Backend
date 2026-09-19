@@ -10,8 +10,10 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import team4.emotionmap.contracts.ai.AnalysisPort;
+import team4.emotionmap.contracts.ai.MatchReasonPort;
 import team4.emotionmap.contracts.ai.ModerationPort;
 import team4.emotionmap.contracts.ai.PreferenceTieBreakPort;
+import team4.emotionmap.contracts.ai.PreferenceVerifyPort;
 
 /** Fails closed when a production profile is combined with development security or AI wiring. */
 @Component
@@ -87,6 +89,8 @@ public class RuntimeSecurityGuard implements SmartInitializingSingleton {
         validatePort(AnalysisPort.class, "AnalysisPort", invalid);
         validatePort(ModerationPort.class, "ModerationPort", invalid);
         validatePort(PreferenceTieBreakPort.class, "PreferenceTieBreakPort", invalid);
+        validatePort(PreferenceVerifyPort.class, "PreferenceVerifyPort", invalid);
+        validatePort(MatchReasonPort.class, "MatchReasonPort", invalid);
     }
 
     private <T> void validatePort(Class<T> port, String name, List<String> invalid) {

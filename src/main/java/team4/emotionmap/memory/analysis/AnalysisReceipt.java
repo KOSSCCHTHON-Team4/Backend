@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import team4.emotionmap.contracts.ai.AnalysisEnrichment;
 import team4.emotionmap.contracts.ai.AnalysisProvenance;
 import team4.emotionmap.contracts.ai.AnalysisResult;
 import team4.emotionmap.contracts.dictionary.AnalyzedAtmospheres;
@@ -13,18 +14,23 @@ import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
 import team4.emotionmap.contracts.signing.ContentHash;
 
 /**
- * analysisToken 이 담는 확인값(API_SPEC 4.1). 사용자 귀속·본문 해시·AI 제안·실행 상태·모델/프롬프트/사전 버전·만료.
- * <b>본문 원문·이메일은 넣지 않는다.</b> 최종 저장 시 서명·사용자·본문 해시·만료를 검사하고, AI 제안과 최종값을 비교해
- * 축/카테고리별 AI/USER 출처를 서버가 정한다. 영구 저장하지 않는다.
+ * analysisToken 이 담는 확인값(API_SPEC 4.1 + 기획 §8 부가 출력). 사용자 귀속·본문 해시·AI 제안·실행 상태·
+ * 모델/프롬프트/사전 버전·만료, 그리고 근거·태그·카테고리 신뢰도·안전/개인정보 판정.
+ *
+ * <p><b>본문 원문·마스킹 본문·이메일은 넣지 않는다</b>(해시만). 개인정보가 마스킹된 경우 FE 는 분석 응답의
+ * {@code maskedContent} 를 그대로 저장 본문으로 제출할 수 있으며, 서버는 원문 해시 또는 마스킹 해시 중 하나와 일치하면
+ * 같은 분석 결과로 인정한다. 영구 저장하지 않는다.
  */
 public record AnalysisReceipt(
         UUID userId,
         String contentSha256,
+        String maskedSha256,
         AnalyzedAtmospheres atmospheres,
         List<PlaceCategoryCode> categories,
         AtmosphereAnalysisStatus atmosphereStatus,
         CategoryAnalysisStatus categoryStatus,
         AnalysisProvenance provenance,
+        AnalysisEnrichment enrichment,
         Instant expiresAt
 ) {
     public AnalysisReceipt {
@@ -36,16 +42,28 @@ public record AnalysisReceipt(
         Objects.requireNonNull(provenance);
         Objects.requireNonNull(expiresAt);
         categories = List.copyOf(Objects.requireNonNull(categories));
+        enrichment = enrichment == null ? AnalysisEnrichment.NONE : enrichment;
     }
 
     public static AnalysisReceipt from(UUID userId, String content, AnalysisResult result, Instant expiresAt) {
-        return new AnalysisReceipt(userId, ContentHash.sha256Hex(content), result.atmospheres(),
+        AnalysisEnrichment e = result.enrichment();
+        String maskedHash = e.hasMaskedContent(content) ? ContentHash.sha256Hex(e.maskedContent()) : null;
+        // 토큰에는 마스킹 본문 대신 해시만 싣는다.
+        AnalysisEnrichment withoutText = new AnalysisEnrichment(e.evidence(), e.tags(), e.categoryConfidence(),
+                e.categorySource(), null, e.piiFound(), e.safe(), e.unsafeReason());
+        return new AnalysisReceipt(userId, ContentHash.sha256Hex(content), maskedHash, result.atmospheres(),
                 result.categories(), result.atmosphereStatus(), result.categoryStatus(),
-                result.provenance(), expiresAt);
+                result.provenance(), withoutText, expiresAt);
     }
 
-    /** 저장할 본문이 분석한 본문과 같은가(정규화 없이 원문 비교). */
+    /** 저장할 본문이 분석한 본문(원문) 또는 AI 마스킹 본문과 같은가(정규화 없이 원문 비교). */
     public boolean matchesContent(String content) {
-        return ContentHash.matches(content, contentSha256);
+        return ContentHash.matches(content, contentSha256)
+                || (maskedSha256 != null && ContentHash.matches(content, maskedSha256));
+    }
+
+    /** 제출 본문이 마스킹 본문 쪽과 일치했는가(= 개인정보가 제거된 본문을 저장). */
+    public boolean isMaskedSubmission(String content) {
+        return maskedSha256 != null && ContentHash.matches(content, maskedSha256);
     }
 }
