@@ -1,63 +1,91 @@
 package team4.emotionmap.platform.security;
 
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.error.ContractError;
+import team4.emotionmap.platform.web.ApiErrorWriter;
 
 /**
- * Bearer 토큰을 검증해 SecurityContext 에 인증을 설정하는 필터(C02 일부).
- * <ul>
- *   <li>principal 은 현재 {@code Long userId}(baseline). A01 에서 UUID 로 교체된다 — 컨트롤러는
- *       {@code contracts.account.UserContext} 를 통해 읽어 교체 영향을 격리한다.</li>
- *   <li>토큰이 없거나 유효하지 않으면 인증을 설정하지 않고 실패 사유만 요청 속성에 남긴다.
- *       401 응답 본문은 {@link ApiErrorAuthenticationEntryPoint} 가 만든다(TOKEN_EXPIRED/INVALID_TOKEN 구분).</li>
- *   <li>토큰 값은 로그에 남기지 않는다.</li>
- * </ul>
+ * Validates UUID JWT subjects and rechecks current account access on every request.
+ * Authentication failures retain their expired/invalid distinction for the ApiError entry point.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider tokenProvider;
+    private final AccountAccessGuard accountAccessGuard;
+    private final ApiErrorWriter apiErrorWriter;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, AccountAccessGuard accountAccessGuard,
+                                   ApiErrorWriter apiErrorWriter) {
         this.tokenProvider = tokenProvider;
+        this.accountAccessGuard = accountAccessGuard;
+        this.apiErrorWriter = apiErrorWriter;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain)
-            throws ServletException, IOException {
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return (request.getMethod().equals("POST") && path.equals("/v1/auth/login"))
+                || path.equals("/swagger-ui.html") || path.startsWith("/swagger-ui/")
+                || path.equals("/v3/api-docs") || path.startsWith("/v3/api-docs/")
+                || path.equals("/actuator/health");
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith(BEARER_PREFIX)) {
             AuthFailureReason.record(request, AuthFailureReason.MISSING);
-        } else {
-            String token = header.substring(BEARER_PREFIX.length()).trim();
-            try {
-                Long userId = tokenProvider.parseUserId(token);
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (ExpiredJwtException e) {
-                SecurityContextHolder.clearContext();
-                AuthFailureReason.record(request, AuthFailureReason.EXPIRED);
-            } catch (Exception e) {
-                SecurityContextHolder.clearContext();
-                AuthFailureReason.record(request, AuthFailureReason.INVALID);
-            }
+            filterChain.doFilter(request, response);
+            return;
         }
+        UUID userId;
+        try {
+            userId = tokenProvider.parseUserId(header.substring(BEARER_PREFIX.length()).trim());
+        } catch (ExpiredJwtException e) {
+            SecurityContextHolder.clearContext();
+            AuthFailureReason.record(request, AuthFailureReason.EXPIRED);
+            filterChain.doFilter(request, response);
+            return;
+        } catch (JwtException | IllegalArgumentException e) {
+            SecurityContextHolder.clearContext();
+            AuthFailureReason.record(request, AuthFailureReason.INVALID);
+            filterChain.doFilter(request, response);
+            return;
+        }
+        String role;
+        try {
+            role = accountAccessGuard.requireAccess(userId, request.getServletPath());
+        } catch (ResponseStatusException e) {
+            SecurityContextHolder.clearContext();
+            apiErrorWriter.write(response, request, ApiErrorWriter.fromResponseStatus(e));
+            return;
+        } catch (ContractError e) {
+            SecurityContextHolder.clearContext();
+            apiErrorWriter.write(response, request, e);
+            return;
+        }
+        var authentication = new UsernamePasswordAuthenticationToken(
+                userId, null, List.of(new SimpleGrantedAuthority(role)));
+        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
         filterChain.doFilter(request, response);
     }
 }

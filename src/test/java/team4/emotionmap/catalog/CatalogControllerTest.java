@@ -39,7 +39,7 @@ class CatalogControllerTest {
     @Test
     void atmosphereAxesMatchSpecExactly() throws Exception {
         String body = mvc(() -> { throw new IllegalStateException("unused"); })
-                .perform(get("/atmosphere-axes")).andExpect(status().isOk())
+                .perform(get("/v1/atmosphere-axes")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JSONAssert.assertEquals(fixture("atmosphere-axes.v1.json"), body, JSONCompareMode.STRICT);
     }
@@ -47,7 +47,7 @@ class CatalogControllerTest {
     @Test
     void placeCategoriesMatchSpecExactly() throws Exception {
         String body = mvc(() -> { throw new IllegalStateException("unused"); })
-                .perform(get("/place-categories")).andExpect(status().isOk())
+                .perform(get("/v1/place-categories")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JSONAssert.assertEquals(fixture("place-categories.v1.json"), body, JSONCompareMode.STRICT);
     }
@@ -55,7 +55,7 @@ class CatalogControllerTest {
     @Test
     void configMatchesSpecMockExample_A44() throws Exception {
         ServiceConfigProvider provider = new ServiceConfigProvider(ServiceConfigProviderTest.mockProperties());
-        String body = mvc(provider).perform(get("/config")).andExpect(status().isOk())
+        String body = mvc(provider).perform(get("/v1/config")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.auth.mode").value("EMAIL_PASSWORD"))
                 .andExpect(jsonPath("$.auth.refreshSupported").value(false))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -65,8 +65,16 @@ class CatalogControllerTest {
     @Test
     void missingConfigIs503NotSilentDefault() throws Exception {
         mvc(() -> { throw ContractError.of(ErrorCode.CONFIGURATION_UNAVAILABLE); })
-                .perform(get("/config"))
+                .perform(get("/v1/config"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("CONFIGURATION_UNAVAILABLE"));
+    }
+
+    @Test
+    void unversionedCatalogRoutesAreNotExposed() throws Exception {
+        MockMvc mvc = mvc(() -> { throw new IllegalStateException("unused"); });
+        for (String path : new String[]{"/config", "/atmosphere-axes", "/place-categories"}) {
+            mvc.perform(get(path)).andExpect(status().isNotFound());
+        }
     }
 }

@@ -1,17 +1,10 @@
 package team4.emotionmap.place.dto;
 
+import java.util.UUID;
 import team4.emotionmap.place.Place;
 
-/**
- * 장소 응답 DTO (지도 핀).
- */
-public record PlaceResponse(
-        Long id,
-        String name,
-        Double lat,
-        Double lng
-) {
-    public static PlaceResponse from(Place p) {
-        return new PlaceResponse(p.getId(), p.getName(), p.getLat(), p.getLng());
+public record PlaceResponse(UUID id, String label, Double lat, Double lng) {
+    public static PlaceResponse from(Place place) {
+        return new PlaceResponse(place.getId(), place.getLabel(), place.getLat(), place.getLng());
     }
 }

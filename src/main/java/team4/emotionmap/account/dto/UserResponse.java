@@ -1,22 +1,29 @@
 package team4.emotionmap.account.dto;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import team4.emotionmap.account.User;
+import team4.emotionmap.account.UserPreferenceVersion;
 
-/**
- * 사용자 응답 DTO.
- */
 public record UserResponse(
-        Long id,
-        String nickname,
+        UUID id,
         String email,
-        Double homeLat,
-        Double homeLng,
-        OffsetDateTime createdAt
+        boolean hasOnboarded,
+        Mailbox mailbox,
+        Atmospheres atmospheres,
+        String preferenceDescription,
+        String preferenceVersion,
+        Instant preferenceEffectiveAt
 ) {
-    public static UserResponse from(User u) {
-        return new UserResponse(
-                u.getId(), u.getNickname(), u.getEmail(),
-                u.getHomeLat(), u.getHomeLng(), u.getCreatedAt());
+    public static UserResponse from(User user, String email, UserPreferenceVersion preference) {
+        boolean onboarded = user.getMailboxEnabledAt() != null && preference != null;
+        return new UserResponse(user.getId(), email, onboarded,
+                onboarded ? new Mailbox(user.getMailboxLat(), user.getMailboxLng(), user.getMailboxEnabledAt()) : null,
+                onboarded ? Atmospheres.from(preference) : null,
+                onboarded ? preference.getDescription() : null,
+                onboarded ? preference.getRevision().toString() : null,
+                onboarded ? preference.getEffectiveAt() : null);
     }
+
+    public record Mailbox(Double lat, Double lng, Instant enabledAt) { }
 }

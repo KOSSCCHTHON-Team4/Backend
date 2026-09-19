@@ -1,106 +1,162 @@
 package team4.emotionmap.memory;
 
+import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import team4.emotionmap.memory.ai.ContentModerator;
-import team4.emotionmap.memory.ai.Embedder;
-import team4.emotionmap.memory.ai.EmotionTagger;
+import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.account.AccountAccessService;
+import team4.emotionmap.account.User;
+import team4.emotionmap.account.UserRepository;
+import team4.emotionmap.media.ImageStorageService;
+import team4.emotionmap.media.ImageUpload;
+import team4.emotionmap.media.ImageUploadService;
+import team4.emotionmap.media.StoredImage;
 import team4.emotionmap.memory.dto.MemoryCreateRequest;
 import team4.emotionmap.memory.dto.MemoryResponse;
+import team4.emotionmap.place.Place;
+import team4.emotionmap.place.PlaceCategory;
+import team4.emotionmap.place.PlaceCategoryRepository;
+import team4.emotionmap.place.PlaceRepository;
 
-/**
- * 기억 서비스.
- *
- * 저장 시 서버가 채우는 것(모두 AI 포트, 구현은 추후 · Optional 주입):
- *   - ContentModerator : 부적절 콘텐츠 필터 (차단 시 예외)
- *   - EmotionTagger    : content -> 감정 태그
- *   - Embedder         : content -> 임베딩 벡터
- * 포트 구현이 없으면 해당 단계는 건너뛴다(추후 등록만 하면 자동 연결).
- */
-@Slf4j
 @Service
+@RequiredArgsConstructor
 public class MemoryService {
-
     private final MemoryRepository memoryRepository;
-    private final Optional<ContentModerator> contentModerator;
-    private final Optional<EmotionTagger> emotionTagger;
-    private final Optional<Embedder> embedder;
-
-    public MemoryService(MemoryRepository memoryRepository,
-                         Optional<ContentModerator> contentModerator,
-                         Optional<EmotionTagger> emotionTagger,
-                         Optional<Embedder> embedder) {
-        this.memoryRepository = memoryRepository;
-        this.contentModerator = contentModerator;
-        this.emotionTagger = emotionTagger;
-        this.embedder = embedder;
-    }
+    private final MemoryCategoryRepository memoryCategoryRepository;
+    private final MemoryAccessService memoryAccessService;
+    private final UserRepository userRepository;
+    private final PlaceRepository placeRepository;
+    private final PlaceCategoryRepository placeCategoryRepository;
+    private final ImageUploadService imageUploadService;
+    private final ImageStorageService imageStorageService;
 
     @Transactional
-    public MemoryResponse create(MemoryCreateRequest req) {
-        // 1) 콘텐츠 필터(모더레이션) - 구현 있을 때만. 차단 시 예외.
-        contentModerator.ifPresent(moderator -> {
-            ContentModerator.Result result = moderator.moderate(req.content());
-            if (!result.allowed()) {
-                throw new IllegalArgumentException("부적절한 콘텐츠로 차단됨: " + result.reason());
-            }
-        });
-
-        Memory memory = Memory.builder()
-                .userId(req.userId())
-                .placeId(req.placeId())
-                .content(req.content())
-                .imagePath(req.imagePath())
-                .visibility(req.visibility())
-                .build();
-
-        // 2) 감정 태그 자동 추출 (구현 있을 때만)
-        emotionTagger.ifPresent(tagger -> memory.assignEmotionTag(tagger.extract(req.content())));
-
-        // 3) 본문 임베딩 생성 (구현 있을 때만)
-        embedder.ifPresent(e -> memory.assignEmbedding(e.embed(req.content())));
-
-        Memory saved = memoryRepository.save(memory);
-        log.info("memory created: id={}, userId={}, emotionTag={}",
-                saved.getId(), saved.getUserId(), saved.getEmotionTag());
-        return MemoryResponse.from(saved);
-    }
-
-    @Transactional(readOnly = true)
-    public MemoryResponse get(Long id) {
-        Memory memory = memoryRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("기억을 찾을 수 없습니다: " + id));
+    public MemoryResponse create(UUID ownerId, MemoryCreateRequest request) {
+        requireActiveOwner(ownerId);
+        if (request.analysisToken() != null) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Analysis tokens are not supported");
+        }
+        if (request.content() == null || request.content().isBlank() || request.type() == null
+                || request.atmospheres() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Content, type and atmospheres are required");
+        }
+        List<String> categoryCodes = request.categoryCodes();
+        if (categoryCodes == null || categoryCodes.size() > 3
+                || categoryCodes.stream().anyMatch(code -> code == null || code.isBlank())
+                || new HashSet<>(categoryCodes).size() != categoryCodes.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose up to three distinct category codes");
+        }
+        List<PlaceCategory> categories = categoryCodes.stream().map(code -> placeCategoryRepository.findByCode(code)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown category"))).toList();
+        Place place = resolvePlace(ownerId, request);
+        ImageUpload image = request.imageId() == null ? null
+                : imageUploadService.requireAttachable(ownerId, request.imageId());
+        Memory memory = memoryRepository.save(Memory.builder()
+                .ownerId(ownerId).placeId(place.getId()).content(request.content())
+                .distributionType(request.type()).originKind(OriginKind.DIRECT)
+                .dataOrigin(DataOrigin.PARTICIPANT)
+                .placeLabelSnapshot(place.getLabel()).placeLat(place.getLat()).placeLng(place.getLng())
+                .crowdLevel(request.atmospheres().crowdLevel()).spatialFeel(request.atmospheres().spatialFeel())
+                .companyFit(request.atmospheres().companyFit()).stayStyle(request.atmospheres().stayStyle())
+                .crowdSource(ValueSource.USER).spatialSource(ValueSource.USER)
+                .companySource(ValueSource.USER).staySource(ValueSource.USER)
+                .atmosphereAnalysisStatus(AtmosphereAnalysisStatus.NOT_RUN)
+                .categoryAnalysisStatus(CategoryAnalysisStatus.NOT_RUN)
+                .imagePath(image == null ? null : image.getStoragePath())
+                .imageMediaType(image == null ? null : image.getMediaType())
+                .imageSizeBytes(image == null ? null : image.getSizeBytes())
+                .build());
+        if (image != null) {
+            image.attach(memory.getId());
+        }
+        for (int index = 0; index < categories.size(); index++) {
+            PlaceCategory category = categories.get(index);
+            memoryCategoryRepository.save(MemoryCategory.builder()
+                    .id(new MemoryCategoryId(memory.getId(), category.getId()))
+                    .slotNo((short) (index + 1)).assignmentSource(ValueSource.USER)
+                    .labelSnapshot(category.getLabel()).taxonomyVersion(category.getTaxonomyVersion()).build());
+        }
         return MemoryResponse.from(memory);
     }
 
     @Transactional(readOnly = true)
-    public List<MemoryResponse> findByUser(Long userId) {
-        return memoryRepository.findByUserId(userId).stream()
-                .map(MemoryResponse::from)
-                .toList();
+    public MemoryResponse get(UUID userId, UUID id) {
+        return MemoryResponse.from(memoryAccessService.requireReadable(userId, id));
     }
 
     @Transactional(readOnly = true)
-    public List<MemoryResponse> findByPlace(Long placeId) {
-        return memoryRepository.findByPlaceId(placeId).stream()
-                .map(MemoryResponse::from)
-                .toList();
+    public List<MemoryResponse> findByUser(UUID userId) {
+        return memoryRepository.findByOwnerIdAndContentStatusOrderByCreatedAtDesc(userId, ContentStatus.ACTIVE)
+                .stream().map(MemoryResponse::from).toList();
     }
 
-    /** 하드 삭제 (ERD 결정: 삭제). CASCADE 로 reaction/letter/report 도 함께 삭제됨. */
+    @Transactional(readOnly = true)
+    public List<MemoryResponse> findByPlace(UUID userId, UUID placeId) {
+        List<MemoryResponse> visible = memoryRepository
+                .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(placeId, ContentStatus.ACTIVE).stream()
+                .filter(memory -> memoryAccessService.isReadable(userId, memory))
+                .map(MemoryResponse::from).toList();
+        if (visible.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found");
+        }
+        return visible;
+    }
+
+    @Transactional(readOnly = true)
+    public StoredImage image(UUID userId, UUID memoryId) {
+        Memory memory = memoryAccessService.requireReadable(userId, memoryId);
+        if (memory.getImagePath() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory has no image");
+        }
+        return imageStorageService.load(memory.getImagePath());
+    }
+
     @Transactional
-    public void delete(Long id) {
-        memoryRepository.deleteById(id);
+    public void delete(UUID ownerId, UUID id) {
+        requireActiveOwner(ownerId);
+        Memory memory = memoryRepository.findByIdForUpdate(id)
+                .filter(candidate -> candidate.getOwnerId().equals(ownerId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found"));
+        if (memory.getContentStatus() != ContentStatus.DELETED) {
+            memory.softDelete(Instant.now());
+        }
     }
 
-    /** 벡터 유사도 검색: 질의 임베딩과 가장 가까운 ACTIVE 기억 top-N. */
-    @Transactional(readOnly = true)
-    public List<MemoryResponse> findSimilar(float[] queryEmbedding, int limit) {
-        return memoryRepository.findNearestByEmbedding(queryEmbedding, limit).stream()
-                .map(MemoryResponse::from)
-                .toList();
+    private void requireActiveOwner(UUID ownerId) {
+        User owner = userRepository.findByIdForUpdate(ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account not found"));
+        AccountAccessService.requireActive(owner);
+    }
+
+    private Place resolvePlace(UUID ownerId, MemoryCreateRequest request) {
+        Double lat = request.lat();
+        Double lng = request.lng();
+        if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)
+                || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid place coordinates");
+        }
+        if (request.placeId() == null) {
+            String label = request.placeLabel();
+            return placeRepository.save(Place.builder().lat(lat).lng(lng)
+                    .label(label == null || label.isBlank() ? null : label.strip()).build());
+        }
+        boolean visible = memoryRepository
+                .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(request.placeId(), ContentStatus.ACTIVE).stream()
+                .anyMatch(memory -> memoryAccessService.isReadable(ownerId, memory));
+        if (!visible) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found");
+        }
+        Place place = placeRepository.findById(request.placeId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found"));
+        if (place.getLat().doubleValue() != lat.doubleValue()
+                || place.getLng().doubleValue() != lng.doubleValue()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Place coordinates do not match");
+        }
+        return place;
     }
 }

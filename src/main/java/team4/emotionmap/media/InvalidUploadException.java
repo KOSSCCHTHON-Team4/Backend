@@ -1,8 +1,15 @@
 package team4.emotionmap.media;
 
-/** 업로드 검증 실패(확장자/크기/빈 파일 등). 컨트롤러에서 400 으로 매핑 권장. */
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ResponseStatus;
+
+@ResponseStatus(HttpStatus.BAD_REQUEST)
 public class InvalidUploadException extends RuntimeException {
     public InvalidUploadException(String message) {
         super(message);
+    }
+
+    public InvalidUploadException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

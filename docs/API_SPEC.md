@@ -14,11 +14,11 @@
 
 **[유지]**는 이미 확정한 제품 정책이다. **[계약 제안]**은 이번에 요청·응답을 구체화하기 위해 선택한 초안이다. **[합의 필요]**는 토큰 TTL·수치 한도·운영 도구처럼 실제 연동 전에 정할 의존성이다. OpenAPI에 수록되었다는 사실이 승인이나 구현 완료를 뜻하지 않는다.
 
-**[최신 확정] 로그인은 오직 이메일·비밀번호 방식이다.** 공급자 인증·소셜 로그인·공급자 토큰 교환·계정 연결은 구현하지 않는다. `LoginRequest`는 `{email, password}` 단일 객체이며 `/config.auth.mode`는 `EMAIL_PASSWORD`만 반환한다. 성공 응답의 이메일은 필수 문자열이다. 회원가입·비밀번호 재설정 API는 이번 변경으로 추가하지 않는다.
+**[최신 확정] 로그인은 오직 이메일·비밀번호 방식이다.** 공급자 인증·소셜 로그인·공급자 토큰 교환·계정 연결은 구현하지 않는다. `LoginRequest`는 `{email, password}` 단일 객체이며 `/v1/config.auth.mode`는 `EMAIL_PASSWORD`만 반환한다. 성공 응답의 이메일은 필수 문자열이다. 회원가입·비밀번호 재설정 API는 이번 변경으로 추가하지 않는다.
 
 v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키지의 `AUTH_ERD_DELTA.md`가 ERD 1.0 인증 절보다 우선하는 제안이다. 기존 원본 ERD 파일이나 운영 DB를 수정한 것은 아니다.
 
-**MOCK 숫자 주의:** `/config` 예시의 반경 1000m, 중심 좌표, 토큰 TTL·파일/본문/작성량/페이지 제한은 로컬 mock 구성 예시이다. 실제 운영 수치를 임의 확정하지 않았다. 배달 시간 `09:00`, 시간대 `Asia/Seoul`, 4축의 `-1/+1`, 카테고리 최대 3개는 이미 확정된 정책이다.
+**MOCK 숫자 주의:** `/v1/config` 예시의 반경 1000m, 중심 좌표, 토큰 TTL·파일/본문/작성량/페이지 제한은 로컬 mock 구성 예시이다. 실제 운영 수치를 임의 확정하지 않았다. 배달 시간 `09:00`, 시간대 `Asia/Seoul`, 4축의 `-1/+1`, 카테고리 최대 3개는 이미 확정된 정책이다.
 
 ## 목차
 
@@ -43,12 +43,12 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 
 | FE 요청 | 처리 | 계약·스키마 영향 |
 |---|---|---|
-| 경로를 기획서 12장과 통일 | [유지] | 기존 경로 유지. `/config`, `/images`만 FE 추가 제안으로 포함 |
+| 경로를 기획서 12장과 통일 | [유지] | 업무 경로에 `/v1` 접두어 적용. `/v1/config`, `/v1/images`만 FE 추가 제안으로 포함 |
 | Bearer access token | [계약 제안] 채택 | 서비스 자체 발급 토큰 사용. 실제 TTL·갱신 정책은 기존 합의 대상으로 유지 |
 | 로그인 `hasOnboarded` | [계약 제안] 채택 | 파생 응답값, 별도 boolean 컬럼 없이 일관된 온보딩 상태로 계산 |
 | `email: string` | [최신 확정 반영] 필수 문자열 | 이메일·비밀번호 계정이므로 로그인·내 계정 응답에서 null을 허용하지 않음. 인증 저장 구조 보완 |
 | 로그인 5회 실패·1분 제한 | [FE 제안] 서버 적용 권고 | 앱 재시작/브라우저 변경으로 우회 불가한 서버 상태 필요. 관찰 구간·키·저장소 미결 |
-| `/config` | [계약 제안] 추가 | 반경·지도 초기 중심·배달 시각·제한을 서버 설정으로 제공. 사용자별 선택값 아님 |
+| `/v1/config` | [계약 제안] 추가 | 반경·지도 초기 중심·배달 시각·제한을 서버 설정으로 제공. 사용자별 선택값 아님 |
 | `preference_version` 응답 | [계약 제안] 채택 | JSON은 `preferenceVersion` 10진 문자열. PATCH에 `expectedPreferenceVersion` 추가 |
 | 분석 결과 | [계약 제안] FE 필드 유지+보완 | `analysisToken`, `expiresAt`, `atmosphereStatus`, `warnings` 추가. 출처 위조 방지 |
 | `imageId` 선행 업로드 | [계약 제안] 채택 | **기존 10테이블에는 업로드 대기 자원이 없음**. `image_uploads` 등 메타데이터 필요 |
@@ -59,7 +59,7 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 | 중복 좋아요 오류 | [수정 제안] **200** | `ALREADY_COPIED`, 사본 ID null. 실패처럼 재시도시켜 중복 생성하지 않음 |
 | 지도 핀·장소명 | [계약 제안] 내부 핀 | 새 작성은 새 Place, 명시적 가시 placeId 재사용만 허용. 자동 인접 병합 없음 |
 | 신고 코드 | [계약 제안] 7개 코드 | `reports.reason`에 코드 저장. 선택 `details`를 별도 열로 추가 권고 |
-| 내 보낸 편지·좋아요 수 | [누락 보완] | 원래 기획의 `GET /users/me/memories?type=LETTER`를 포함 |
+| 내 보낸 편지·좋아요 수 | [누락 보완] | 원래 기획의 `GET /v1/users/me/memories?type=LETTER`를 포함 |
 
 **그대로 유지하는 비노출 원칙:** 수신자 응답에 원작성자 ID·이메일·닉네임·프로필·우편함 좌표를 넣지 않는다. `memoryId`와 `deliveryId`는 접근 대상 식별자이지 작성자 식별정보가 아니다. 미선정 글의 본문·핀·개수를 반환하지 않는다. 합성 예시인지 구분하는 `dataOrigin`은 사람의 신원이 아닌 데이터 생성 유형이다.
 
@@ -69,10 +69,10 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 
 | 항목 | 계약 초안 |
 |---|---|
-| API base | 배포 환경의 `API_BASE_URL`. OpenAPI 서버 `/`. `/api/v1` 같은 접두어를 임의 추가하지 않음 |
+| API base | `API_BASE_URL`은 배포 origin(`https://{domain/ip}`); 모든 업무 API 경로는 `/v1/...`. OpenAPI 서버 `/` + 버전이 포함된 paths를 사용하며 `/v1`을 중복 추가하지 않음 |
 | 전송 | HTTPS. JSON 요청/응답은 `application/json`; 이미지 업로드만 `multipart/form-data` |
 | 인증 | `Authorization: Bearer <accessToken>`; 로그인만 무인증. 다른 경로는 ACTIVE 초대 계정 필요 |
-| 온보딩 전 허용 | `/config`, `/atmosphere-axes`, `/place-categories`, `/users/me`, `/users/me/onboarding` |
+| 온보딩 전 허용 | `/v1/config`, `/v1/atmosphere-axes`, `/v1/place-categories`, `/v1/users/me`, `/v1/users/me/onboarding` |
 | 성공 포맷 | `{data:...}` 봉투 없이 DTO를 바로 반환. 목록만 `{items, pageInfo}` |
 | 식별자 | UUID 문자열. 카테고리는 고정 문자열 코드. DB bigint revision은 10진 문자열 |
 | 시각 | ISO 8601 오프셋 포함. 예시는 `+09:00`, 서버는 `Z`도 가능. 날짜 계산은 Asia/Seoul |
@@ -82,13 +82,13 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 | 로그 | 토큰, 비밀번호, 본문, 자연어 취향, 이미지경로, 원문+사본ID 쌍의 본문 로그 금지 |
 | HTTP 204 | 본문이 없음. FE가 `response.json()`을 호출하지 않음 |
 
-원래 DB enum과 API enum은 구분하며 raw Entity 전체를 직렬화하지 않는다. `/config`의 숫자 제한은 모든 인스턴스와 FE가 같은 버전을 사용한다. 설정이 준비되지 않으면 503 `CONFIGURATION_UNAVAILABLE`로 실패하고 조용히 기본 반경을 넣지 않는다.
+원래 DB enum과 API enum은 구분하며 raw Entity 전체를 직렬화하지 않는다. `/v1/config`의 숫자 제한은 모든 인스턴스와 FE가 같은 버전을 사용한다. 설정이 준비되지 않으면 503 `CONFIGURATION_UNAVAILABLE`로 실패하고 조용히 기본 반경을 넣지 않는다.
 
 ### 2.2 JSON·텍스트 검증
 
 4축은 이름이 정확한 네 키이고 각각 숫자 `-1` 또는 `1`이어야 한다. 누락·추가 축·문자열 `"1"`·null·0·0.5·중복 키를 거절한다. **1.0처럼 소수 표기를 거절하려면 JSON 토큰 수준 검사도 필요**하다. OpenAPI 3.1/JSON Schema에서는 수학적으로 1과1.0을 같은 정수로 볼 수 있으므로 YAML 검증만으로 이 요구를 다 검사했다고 하지 않는다. JSON 중복 키 역시 파싱 뒤 객체만으로 복원할 수 없으므로 서버 파서에서 검사한다. [W1]
 
-본문은 저장·분석·토큰 검증에서 같은 문자열을 사용한다. 본문 원문을 임의로 Unicode 정규화/개행 변경/trim해서 다른 해시로 만들지 않는다. 공백 문자만 있으면 거절한다. 길이는 Unicode 코드 포인트 기준으로 세도록 제안하며 JS `.length`만을 그대로 쓰지 않는다. 자연어 취향과 신고 details는 앞뒤 공백을 제거하고 비었으면 null로 정규화하는 안이다. 최대 길이는 `/config.limits`로 통일한다. 비밀번호는 trim/정규화하지 않는다.
+본문은 저장·분석·토큰 검증에서 같은 문자열을 사용한다. 본문 원문을 임의로 Unicode 정규화/개행 변경/trim해서 다른 해시로 만들지 않는다. 공백 문자만 있으면 거절한다. 길이는 Unicode 코드 포인트 기준으로 세도록 제안하며 JS `.length`만을 그대로 쓰지 않는다. 자연어 취향과 신고 details는 앞뒤 공백을 제거하고 비었으면 null로 정규화하는 안이다. 최대 길이는 `/v1/config.limits`로 통일한다. 비밀번호는 trim/정규화하지 않는다.
 
 ### 2.3 공통 오류
 
@@ -121,7 +121,7 @@ FE는 `code`로 분기하고 `message`를 파싱하지 않는다. 에러 객체 
 
 ### 2.4 생성 재시도
 
-`POST /memories`, `POST /images`, `POST /reports`에는 **[계약 제안] `Idempotency-Key: <UUID>`를 필수**로 둔다. FE는 한 번의 의도된 제출에 키 하나를 만들고, 응답 유실·시간 초과 때 **동일 키·동일 payload**를 재전송한다. 내용을 의도적으로 바꾸면 새 키를 사용한다.
+`POST /v1/memories`, `POST /v1/images`, `POST /v1/reports`에는 **[계약 제안] `Idempotency-Key: <UUID>`를 필수**로 둔다. FE는 한 번의 의도된 제출에 키 하나를 만들고, 응답 유실·시간 초과 때 **동일 키·동일 payload**를 재전송한다. 내용을 의도적으로 바꾸면 새 키를 사용한다.
 
 서버는 사용자+메서드+경로+키를 고유하게 관리하고 요청 정규화 해시를 비교한다. 첫 완료는201, 같은 요청의 완료 재확인은200이다. 다른 payload면409 `IDEMPOTENCY_KEY_REUSED`, 실행 중이면409 `REQUEST_IN_PROGRESS`와 재시도 안내다. 업로드 지문은 원본 요청 파일 바이트를 기준으로 하며 처리 후 인코딩 결과로 키 동등성을 바꾸지 않는다.
 
@@ -135,7 +135,7 @@ MVP의 요청키 보존 범위/정리 시점은 운영 계약이다. 최소한 �
 
 ### 3.1 이메일·비밀번호 전용 로그인 — 확정
 
-`POST /auth/login`은 아래 두 필드만 받는다. 클라이언트는 공급자 인증 SDK, 외부 토큰, 리다이렉트·콜백을 사용하지 않는다.
+`POST /v1/auth/login`은 아래 두 필드만 받는다. 클라이언트는 공급자 인증 SDK, 외부 토큰, 리다이렉트·콜백을 사용하지 않는다.
 
 ```json
 {
@@ -148,7 +148,7 @@ MVP의 요청키 보존 범위/정리 시점은 운영 계약이다. 최소한 �
 
 서버는 자체 자격증명에서 로그인 이메일을 조회하고 저장된 비밀번호 해시를 검증한다. 검증한 뒤 계정의 초대·접근 상태를 확인하고 서비스 access token을 발급한다. 로그인 요청의 이메일로 계정을 자동 생성하거나 기존 계정과 임의 연결하지 않는다. 로그인 성공은 이메일 소유권 검증 완료와 동일하지 않다.
 
-`AuthResponse.user.email`과 `UserProfile.email`은 항상 유효한 문자열이다. `/config.auth.mode`는 `EMAIL_PASSWORD` 고정값이며, 로그인 화면을 띄우기 위해 인증 후의 config를 먼저 읽을 필요는 없다. 기존 Bearer 기반 보호 API 계약은 유지한다.
+`AuthResponse.user.email`과 `UserProfile.email`은 항상 유효한 문자열이다. `/v1/config.auth.mode`는 `EMAIL_PASSWORD` 고정값이며, 로그인 화면을 띄우기 위해 인증 후의 config를 먼저 읽을 필요는 없다. 기존 Bearer 기반 보호 API 계약은 유지한다.
 
 **비밀번호 저장 설계 제안:** ERD 1.0의 공급자 식별자용 `auth_identities` 대신 `email_password_credentials`를 사용한다. 필수 로그인 이메일·정규화 조회키·`password_hash`를 두고 계정과 1:1로 연결한다. 원문 비밀번호·복호화 가능한 비밀번호·단순 SHA-256 값은 저장하지 않고, Argon2id 등 비밀번호 전용 해시를 검토한다. 정확한 알고리즘·비용은 배포 환경에서 검증한다. [W7]
 
@@ -203,7 +203,7 @@ FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신�
 
 ### 4.2 생성 성공과 배달 성공은 다르다
 
-`POST /memories`는 DB 리소스를 생성한 뒤 201을 반환한다. LETTER의 최초 `ownerState.moderationStatus=PENDING`, `availableAt=null`은 정상이다. 안전 승인이 끝나 최초 available_at이 설정되어야 일일 후보가 된다. 작성 직후 모든 주변 사용자에게 배달하지 않는다.
+`POST /v1/memories`는 DB 리소스를 생성한 뒤 201을 반환한다. LETTER의 최초 `ownerState.moderationStatus=PENDING`, `availableAt=null`은 정상이다. 안전 승인이 끝나 최초 available_at이 설정되어야 일일 후보가 된다. 작성 직후 모든 주변 사용자에게 배달하지 않는다.
 
 상태는 내 기록 진입·수동 갱신으로 확인하고 자동 폴링을 필수로 추가하지 않는다. 직접 PRIVATE도 분위기·카테고리 AI 분석 대상이지만 일일 후보는 아니다. PRIVATE의 별도 moderation 여부는 운영 계약이다.
 
@@ -211,7 +211,7 @@ FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신�
 
 ### 4.3 선행 이미지 업로드
 
-`POST /images → imageId → POST /memories`에는 기존 ERD에 없는 **미첨부 업로드 상태**가 필요하다. 로컬 파일 저장은 유지한다.
+`POST /v1/images → imageId → POST /v1/memories`에는 기존 ERD에 없는 **미첨부 업로드 상태**가 필요하다. 로컬 파일 저장은 유지한다.
 
 추가 메타데이터의 제안은 `image_uploads(id, owner_id, storage_path, media_type, size_bytes, width, height, status, expires_at, attached_memory_id, created_at)`다. STAGED/ATTACHED/EXPIRED를 구분하고 서버가 생성한 임의 파일명을 사용한다.
 
@@ -223,7 +223,7 @@ FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신�
 
 ### 4.4 Bearer로 보호된 이미지 표시
 
-`imageUrl`은 `/memories/{id}/image`라는 보호 API 경로다. 일반 `<img src>`에 임의 Authorization 헤더를 붙이는 방식이 아니라, FE가 fetch로 Bearer를 보내 Blob을 받은 뒤 object URL로 표시한다. 컴포넌트 해제·로그아웃 때 URL을 해제한다. 예시는 `frontend/http_examples.ts`에 있다. [W5][W6]
+`imageUrl`은 `/v1/memories/{id}/image`라는 보호 API 경로다. 일반 `<img src>`에 임의 Authorization 헤더를 붙이는 방식이 아니라, FE가 fetch로 Bearer를 보내 Blob을 받은 뒤 object URL로 표시한다. 컴포넌트 해제·로그아웃 때 URL을 해제한다. 예시는 `frontend/http_examples.ts`에 있다. [W5][W6]
 
 토큰을 URL query에 넣지 않는다. imageUrl이 설정된 API origin인지 확인한 뒤 자격증명을 첨부한다. CORS는 허용 FE origin과 Authorization/Content-Type/Idempotency-Key를 명시하고, 읽어야 하는 응답 헤더도 노출한다. FormData의 Content-Type은 브라우저가 boundary와 함께 생성하므로 직접 고정하지 않는다.
 
@@ -260,7 +260,7 @@ EXPIRED_ERROR는 지난 날짜의 종료 상태이므로 오늘의 오류로 복
 반복 파라미터를 사용한다. OpenAPI 설정은 `style=form, explode=true`다.
 
 ```text
-GET /letters?atmospheres=CROWD_LEVEL%3A-1&atmospheres=STAY_STYLE%3A-1&categories=CAFE&categories=STUDY_WORK&limit=20
+GET /v1/letters?atmospheres=CROWD_LEVEL%3A-1&atmospheres=STAY_STYLE%3A-1&categories=CAFE&categories=STUDY_WORK&limit=20
 ```
 
 이는 `(조용한 OR 오래 머물기 좋은) AND (카페 OR 공부·작업 공간)`이다. 쉼표로 묶는 형식과 반복 형식을 동시에 지원하지 않는다. 빈 조건은 `atmospheres=` 대신 파라미터를 생략한다.
@@ -333,30 +333,30 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 | 순서 | 메서드 | 경로 | 용도 |
 |---:|---|---|---|
-| 1 | POST | `/auth/login` | 로그인 및 초기 설정 여부 |
-| 2 | GET | `/config` | 고정 반경·제한·정기 배달 설정 |
-| 3 | GET | `/atmosphere-axes` | 확정 분위기4축 사전 |
-| 4 | GET | `/place-categories` | 자체 장소 카테고리8종 |
-| 5 | GET | `/users/me` | 본인 설정·온보딩 상태 |
-| 6 | POST | `/users/me/onboarding` | 최초 위치·4축 설정 |
-| 7 | PATCH | `/users/me/preferences` | 4축·자연어 취향 변경 |
-| 8 | POST | `/memories/analyze` | 본문의 분위기·카테고리 AI 제안 |
-| 9 | POST | `/memories` | LETTER 또는 직접 PRIVATE 생성 |
-| 10 | POST | `/images` | JPEG/PNG1장 선행 업로드 |
-| 11 | GET | `/memories/{id}/image` | 권한 확인 후 경험 이미지 |
-| 12 | GET | `/letters/today` | 오늘 배달 상태 조회 |
-| 13 | GET | `/letters` | 누적 수신함·조회 필터 |
-| 14 | PATCH | `/letters/{deliveryId}/read` | 최초 읽음 기록 |
-| 15 | POST | `/letters/{deliveryId}/like` | 일회성 좋아요·독립 PRIVATE 복사 |
-| 16 | GET | `/bookmarks` | 내 PRIVATE 보관함 |
-| 17 | GET | `/memories/{id}` | 경험 상세·작성자 상태 |
-| 18 | DELETE | `/memories/{id}` | 내 원문·PRIVATE 일반 삭제 |
-| 19 | GET | `/users/me/memories` | 내가 보낸 LETTER·누적 반응 |
-| 20 | GET | `/places` | 현재 사용자 권한 내 지도 핀 |
-| 21 | GET | `/places/{id}/memories` | 한 내부 핀의 권한 있는 경험 |
-| 22 | POST | `/reports` | 열람 가능한 경험 신고 접수 |
+| 1 | POST | `/v1/auth/login` | 로그인 및 초기 설정 여부 |
+| 2 | GET | `/v1/config` | 고정 반경·제한·정기 배달 설정 |
+| 3 | GET | `/v1/atmosphere-axes` | 확정 분위기4축 사전 |
+| 4 | GET | `/v1/place-categories` | 자체 장소 카테고리8종 |
+| 5 | GET | `/v1/users/me` | 본인 설정·온보딩 상태 |
+| 6 | POST | `/v1/users/me/onboarding` | 최초 위치·4축 설정 |
+| 7 | PATCH | `/v1/users/me/preferences` | 4축·자연어 취향 변경 |
+| 8 | POST | `/v1/memories/analyze` | 본문의 분위기·카테고리 AI 제안 |
+| 9 | POST | `/v1/memories` | LETTER 또는 직접 PRIVATE 생성 |
+| 10 | POST | `/v1/images` | JPEG/PNG1장 선행 업로드 |
+| 11 | GET | `/v1/memories/{id}/image` | 권한 확인 후 경험 이미지 |
+| 12 | GET | `/v1/letters/today` | 오늘 배달 상태 조회 |
+| 13 | GET | `/v1/letters` | 누적 수신함·조회 필터 |
+| 14 | PATCH | `/v1/letters/{deliveryId}/read` | 최초 읽음 기록 |
+| 15 | POST | `/v1/letters/{deliveryId}/like` | 일회성 좋아요·독립 PRIVATE 복사 |
+| 16 | GET | `/v1/bookmarks` | 내 PRIVATE 보관함 |
+| 17 | GET | `/v1/memories/{id}` | 경험 상세·작성자 상태 |
+| 18 | DELETE | `/v1/memories/{id}` | 내 원문·PRIVATE 일반 삭제 |
+| 19 | GET | `/v1/users/me/memories` | 내가 보낸 LETTER·누적 반응 |
+| 20 | GET | `/v1/places` | 현재 사용자 권한 내 지도 핀 |
+| 21 | GET | `/v1/places/{id}/memories` | 한 내부 핀의 권한 있는 경험 |
+| 22 | POST | `/v1/reports` | 열람 가능한 경험 신고 접수 |
 
-### 8.1 `POST /auth/login`
+### 8.1 `POST /v1/auth/login`
 
 **로그인 및 초기 설정 여부** · operationId: `login` · 성공 `200`
 
@@ -394,7 +394,7 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 **주요 오류 코드:** `INVALID_CREDENTIALS`, `VALIDATION_ERROR`, `TOO_MANY_ATTEMPTS`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `SERVICE_UNAVAILABLE`。
 
-### 8.2 `GET /config`
+### 8.2 `GET /v1/config`
 
 **고정 반경·제한·정기 배달 설정** · operationId: `getConfig` · 성공 `200`
 
@@ -443,7 +443,7 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `CONFIGURATION_UNAVAILABLE`。
 
-### 8.3 `GET /atmosphere-axes`
+### 8.3 `GET /v1/atmosphere-axes`
 
 **확정 분위기4축 사전** · operationId: `getAtmosphereAxes` · 성공 `200`
 
@@ -521,7 +521,7 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`。
 
-### 8.4 `GET /place-categories`
+### 8.4 `GET /v1/place-categories`
 
 **자체 장소 카테고리8종** · operationId: `getPlaceCategories` · 성공 `200`
 
@@ -591,7 +591,7 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`。
 
-### 8.5 `GET /users/me`
+### 8.5 `GET /v1/users/me`
 
 **본인 설정·온보딩 상태** · operationId: `getMe` · 성공 `200`
 
@@ -642,7 +642,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`。
 
-### 8.6 `POST /users/me/onboarding`
+### 8.6 `POST /v1/users/me/onboarding`
 
 **최초 위치·4축 설정** · operationId: `completeOnboarding` · 성공 `200`
 
@@ -694,7 +694,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `INVALID_ATMOSPHERES`, `ONBOARDING_ALREADY_COMPLETED`。
 
-### 8.7 `PATCH /users/me/preferences`
+### 8.7 `PATCH /v1/users/me/preferences`
 
 **4축·자연어 취향 변경** · operationId: `updatePreferences` · 성공 `200`
 
@@ -745,7 +745,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `INVALID_ATMOSPHERES`, `IMMUTABLE_FIELD`, `PREFERENCE_VERSION_CONFLICT`。
 
-### 8.8 `POST /memories/analyze`
+### 8.8 `POST /v1/memories/analyze`
 
 **본문의 분위기·카테고리 AI 제안** · operationId: `analyzeMemory` · 성공 `200`
 
@@ -810,7 +810,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `RATE_LIMITED`。
 
-### 8.9 `POST /memories`
+### 8.9 `POST /v1/memories`
 
 **LETTER 또는 직접 PRIVATE 생성** · operationId: `createMemory` · 성공 `201`
 
@@ -876,7 +876,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
   "originKind": "DIRECT",
   "dataOrigin": "TEAM_TEST",
   "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-  "imageUrl": "/memories/30000000-0000-4000-8000-000000000002/image",
+  "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000002/image",
   "atmospheres": {
     "CROWD_LEVEL": -1,
     "SPATIAL_FEEL": -1,
@@ -911,7 +911,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_JSON`, `DUPLICATE_JSON_KEY`, `INVALID_REQUEST`, `VALIDATION_ERROR`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `INVALID_ATMOSPHERES`, `INVALID_CATEGORIES`, `DAILY_WRITE_LIMIT_EXCEEDED`, `IMAGE_NOT_FOUND`, `IMAGE_UPLOAD_EXPIRED`, `IMAGE_ALREADY_ATTACHED`, `ANALYSIS_TOKEN_INVALID`, `ANALYSIS_TOKEN_EXPIRED`, `ANALYSIS_CONTENT_MISMATCH`, `RESOURCE_NOT_FOUND`, `PLACE_COORDINATE_MISMATCH`, `MEMORY_UNAVAILABLE`。
 
-### 8.10 `POST /images`
+### 8.10 `POST /v1/images`
 
 **JPEG/PNG1장 선행 업로드** · operationId: `uploadImage` · 성공 `201`
 
@@ -924,7 +924,7 @@ file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하�
 **요청 스키마:** `ImageUploadRequest`
 
 ```http
-POST /images
+POST /v1/images
 Authorization: Bearer <accessToken>
 Idempotency-Key: <이번 업로드에 고정한 UUID>
 Content-Type: multipart/form-data; boundary=<브라우저 생성>
@@ -949,7 +949,7 @@ file: <JPEG/PNG binary 1개>
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `INVALID_REQUEST`, `IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, `INVALID_IMAGE`, `IMAGE_DIMENSIONS_EXCEEDED`, `IMAGE_UPLOAD_EXPIRED`, `IMAGE_STORAGE_UNAVAILABLE`, `RATE_LIMITED`。
 
-### 8.11 `GET /memories/{id}/image`
+### 8.11 `GET /v1/memories/{id}/image`
 
 **권한 확인 후 경험 이미지** · operationId: `getMemoryImage` · 성공 `200`
 
@@ -965,7 +965,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`, `IMAGE_FILE_UNAVAILABLE`。
 
-### 8.12 `GET /letters/today`
+### 8.12 `GET /v1/letters/today`
 
 **오늘 배달 상태 조회** · operationId: `getTodayLetter` · 성공 `200`
 
@@ -996,7 +996,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
     "availability": "AVAILABLE",
     "unavailableReason": null,
     "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-    "imageUrl": "/memories/30000000-0000-4000-8000-000000000001/image",
+    "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000001/image",
     "atmospheres": {
       "CROWD_LEVEL": -1,
       "SPATIAL_FEEL": -1,
@@ -1069,7 +1069,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`。
 
-### 8.13 `GET /letters`
+### 8.13 `GET /v1/letters`
 
 **누적 수신함·조회 필터** · operationId: `listLetters` · 성공 `200`
 
@@ -1080,7 +1080,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 | query | `atmospheres` | 아니오 | string[] — 반복 파라미터. 예: atmospheres=CROWD_LEVEL:-1&atmospheres=SPATIAL_FEEL:1. 같은 축 양쪽도 허용하되 전체 분위기OR의 넓어진 결과를 FE가 표시. |
 | query | `categories` | 아니오 | PlaceCategoryCode[] — 반복 파라미터. categories=CAFE&categories=PARK_WALK. 빈값 대신 파라미터 생략. |
 | query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
@@ -1101,7 +1101,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
       "availability": "AVAILABLE",
       "unavailableReason": null,
       "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-      "imageUrl": "/memories/30000000-0000-4000-8000-000000000001/image",
+      "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000001/image",
       "atmospheres": {
         "CROWD_LEVEL": -1,
         "SPATIAL_FEEL": -1,
@@ -1132,7 +1132,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`, `INVALID_ATMOSPHERES`, `INVALID_CATEGORIES`。
 
-### 8.14 `PATCH /letters/{deliveryId}/read`
+### 8.14 `PATCH /v1/letters/{deliveryId}/read`
 
 **최초 읽음 기록** · operationId: `markLetterRead` · 성공 `200`
 
@@ -1157,7 +1157,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`。
 
-### 8.15 `POST /letters/{deliveryId}/like`
+### 8.15 `POST /v1/letters/{deliveryId}/like`
 
 **일회성 좋아요·독립 PRIVATE 복사** · operationId: `likeAndCopyLetter` · 성공 `200`
 
@@ -1195,7 +1195,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`, `COPY_FAILED`。
 
-### 8.16 `GET /bookmarks`
+### 8.16 `GET /v1/bookmarks`
 
 **내 PRIVATE 보관함** · operationId: `listBookmarks` · 성공 `200`
 
@@ -1204,7 +1204,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|
 | query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
@@ -1221,7 +1221,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
       "originKind": "LETTER_COPY",
       "dataOrigin": "TEAM_TEST",
       "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-      "imageUrl": "/memories/30000000-0000-4000-8000-000000000003/image",
+      "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000003/image",
       "atmospheres": {
         "CROWD_LEVEL": -1,
         "SPATIAL_FEEL": -1,
@@ -1262,7 +1262,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`。
 
-### 8.17 `GET /memories/{id}`
+### 8.17 `GET /v1/memories/{id}`
 
 **경험 상세·작성자 상태** · operationId: `getMemory` · 성공 `200`
 
@@ -1285,7 +1285,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
   "originKind": "DIRECT",
   "dataOrigin": "TEAM_TEST",
   "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-  "imageUrl": "/memories/30000000-0000-4000-8000-000000000002/image",
+  "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000002/image",
   "atmospheres": {
     "CROWD_LEVEL": -1,
     "SPATIAL_FEEL": -1,
@@ -1320,7 +1320,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `RESOURCE_NOT_FOUND`, `MEMORY_UNAVAILABLE`。
 
-### 8.18 `DELETE /memories/{id}`
+### 8.18 `DELETE /v1/memories/{id}`
 
 **내 원문·PRIVATE 일반 삭제** · operationId: `deleteMemory` · 성공 `204`
 
@@ -1336,7 +1336,7 @@ Bearer 헤더 필수. 존재하지 않음/권한 없음/사진 없음404. 과거
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `RESOURCE_NOT_FOUND`。
 
-### 8.19 `GET /users/me/memories`
+### 8.19 `GET /v1/users/me/memories`
 
 **내가 보낸 LETTER·누적 반응** · operationId: `listMyLetters` · 성공 `200`
 
@@ -1344,9 +1344,9 @@ FE 목록에서 빠졌지만 기획서에 있는 내 기록 API다. 본인 LETTE
 
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|
-| query | `type` | 예 | LETTER — 이번계약은LETTER만. PRIVATE는/bookmarks |
+| query | `type` | 예 | LETTER — 이번계약은LETTER만. PRIVATE는/v1/bookmarks |
 | query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
@@ -1363,7 +1363,7 @@ FE 목록에서 빠졌지만 기획서에 있는 내 기록 API다. 본인 LETTE
       "originKind": "DIRECT",
       "dataOrigin": "TEAM_TEST",
       "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-      "imageUrl": "/memories/30000000-0000-4000-8000-000000000002/image",
+      "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000002/image",
       "atmospheres": {
         "CROWD_LEVEL": -1,
         "SPATIAL_FEEL": -1,
@@ -1404,7 +1404,7 @@ FE 목록에서 빠졌지만 기획서에 있는 내 기록 API다. 본인 LETTE
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`。
 
-### 8.20 `GET /places`
+### 8.20 `GET /v1/places`
 
 **현재 사용자 권한 내 지도 핀** · operationId: `listVisiblePlaces` · 성공 `200`
 
@@ -1414,7 +1414,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 |---|---|---|---|
 | query | `bbox` | 예 | string — westLng,southLat,eastLng,northLat. 위경도범위·west<east/south<north 서버검증. 반자오선횡단은MVP지원안함. |
 | query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
@@ -1442,7 +1442,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`, `INVALID_BBOX`。
 
-### 8.21 `GET /places/{id}/memories`
+### 8.21 `GET /v1/places/{id}/memories`
 
 **한 내부 핀의 권한 있는 경험** · operationId: `listVisiblePlaceMemories` · 성공 `200`
 
@@ -1452,7 +1452,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 |---|---|---|---|
 | path | `id` | 예 | uuid — 내부Place ID |
 | query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
@@ -1469,7 +1469,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
       "originKind": "DIRECT",
       "dataOrigin": "TEAM_TEST",
       "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-      "imageUrl": "/memories/30000000-0000-4000-8000-000000000001/image",
+      "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000001/image",
       "atmospheres": {
         "CROWD_LEVEL": -1,
         "SPATIAL_FEEL": -1,
@@ -1504,7 +1504,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
       "originKind": "LETTER_COPY",
       "dataOrigin": "TEAM_TEST",
       "content": "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.",
-      "imageUrl": "/memories/30000000-0000-4000-8000-000000000003/image",
+      "imageUrl": "/v1/memories/30000000-0000-4000-8000-000000000003/image",
       "atmospheres": {
         "CROWD_LEVEL": -1,
         "SPATIAL_FEEL": -1,
@@ -1545,7 +1545,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 
 **주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`。
 
-### 8.22 `POST /reports`
+### 8.22 `POST /v1/reports`
 
 **열람 가능한 경험 신고 접수** · operationId: `createReport` · 성공 `201`
 

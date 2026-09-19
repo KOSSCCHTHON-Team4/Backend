@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.contracts.error.ApiError;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
@@ -47,6 +48,34 @@ public class ApiErrorWriter {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.getWriter().write(mapper.writeValueAsString(body));
         response.getWriter().flush();
+    }
+
+    /** Translate main's status exceptions without exposing arbitrary reasons or internal details. */
+    public static ContractError fromResponseStatus(ResponseStatusException error) {
+        String reason = error.getReason();
+        if (reason != null) {
+            try {
+                ErrorCode code = ErrorCode.valueOf(reason);
+                if (code.httpStatus() == error.getStatusCode().value()) {
+                    return ContractError.withCause(code, error);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Non-contract reasons are never copied into the public message.
+            }
+        }
+        ErrorCode code = switch (error.getStatusCode().value()) {
+            case 400 -> ErrorCode.INVALID_REQUEST;
+            case 401 -> ErrorCode.AUTH_REQUIRED;
+            case 403, 404 -> ErrorCode.RESOURCE_NOT_FOUND;
+            case 410 -> ErrorCode.MEMORY_UNAVAILABLE;
+            case 413 -> ErrorCode.IMAGE_TOO_LARGE;
+            case 415 -> ErrorCode.UNSUPPORTED_IMAGE_TYPE;
+            case 422 -> ErrorCode.VALIDATION_ERROR;
+            case 429 -> ErrorCode.RATE_LIMITED;
+            case 503 -> ErrorCode.SERVICE_UNAVAILABLE;
+            default -> ErrorCode.SERVER_ERROR;
+        };
+        return ContractError.withCause(code, error);
     }
 
     public static HttpHeaders headersFor(ApiError body) {

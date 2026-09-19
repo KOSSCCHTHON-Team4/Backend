@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -22,9 +23,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.account.dto.OnboardingRequest;
+import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.media.ImageNotFoundException;
+import team4.emotionmap.media.InvalidUploadException;
 import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -57,6 +63,31 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/probe/expired")
         String expired() {
             throw ContractError.of(ErrorCode.TOKEN_EXPIRED);
+        }
+
+        @GetMapping("/probe/credentials")
+        String credentials() {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS");
+        }
+
+        @PostMapping("/probe/onboarding")
+        String onboarding(@RequestBody OnboardingRequest body) {
+            return "ok";
+        }
+
+        @PostMapping("/probe/preferences")
+        String preferences(@RequestBody PreferencesRequest body) {
+            return "ok";
+        }
+
+        @GetMapping("/probe/image")
+        String image() {
+            throw new ImageNotFoundException("storage path /private/uploads must not leak");
+        }
+
+        @PostMapping("/probe/image")
+        String upload() {
+            throw new InvalidUploadException("internal decoder detail must not leak");
         }
 
         @GetMapping("/probe/boom")
@@ -108,6 +139,50 @@ class GlobalExceptionHandlerTest {
                 .andExpect(header().string("WWW-Authenticate", org.hamcrest.Matchers.startsWith("Bearer")))
                 .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"))
                 .andExpect(jsonPath("$.retryAfterSeconds").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void mainStatusExceptionUsesExactContractCodeAndHeaders() throws Exception {
+        mvc.perform(get("/probe/credentials"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().exists("X-Request-Id"))
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void mainOnboardingAtmosphereFailureSurvivesJacksonWrapping() throws Exception {
+        mvc.perform(post("/probe/onboarding").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"mailboxLat":37.5,"mailboxLng":127.0,"preferenceDescription":"",
+                         "atmospheres":{"CROWD_LEVEL":1.0,"SPATIAL_FEEL":1,"COMPANY_FIT":1,"STAY_STYLE":-1}}
+                        """))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INVALID_ATMOSPHERES"));
+    }
+
+    @Test
+    void mainImmutableFieldFailureSurvivesJacksonWrapping() throws Exception {
+        mvc.perform(post("/probe/preferences").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"expectedPreferenceVersion":"1","preferenceDescription":"","mailboxLat":37.5,
+                         "atmospheres":{"CROWD_LEVEL":1,"SPATIAL_FEEL":1,"COMPANY_FIT":1,"STAY_STYLE":-1}}
+                        """))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("IMMUTABLE_FIELD"));
+    }
+
+    @Test
+    void annotatedMainExceptionsKeepSafeClientErrors() throws Exception {
+        MvcResult missing = mvc.perform(get("/probe/image"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andReturn();
+        assertThat(missing.getResponse().getContentAsString()).doesNotContain("/private/uploads");
+        MvcResult invalid = mvc.perform(post("/probe/image"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andReturn();
+        assertThat(invalid.getResponse().getContentAsString()).doesNotContain("internal decoder");
     }
 
     @Test

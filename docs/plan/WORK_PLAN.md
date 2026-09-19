@@ -33,11 +33,11 @@
 
 | ID | 자료 | 이번 계획에서 사용하는 내용 |
 |---|---|---|
-| S1 | `emotion_map_mvp_v1_4_final.md` | Q1~Q38 최신 정책, 필수/제외 기능, 09시 배달, 원문 비연결 PRIVATE, 70개 수용 기준 |
-| S2 | `emotion_map_erd_spec.md` 및 기존 ERD 패키지 | 10개 기본 테이블, 4축 고정 컬럼, 취향 버전·일일 작업·수신 분리, 잠금·제약 |
-| S3 | `emotion_map_api_v0_2_draft.md` | 이메일 전용 로그인, 22개 참여자 API, 공통 오류·재시도·Today·좋아요 계약, 추가 저장 제안 |
-| S4 | `emotion_map_openapi_v0_2.yaml` | 경로·operationId·스키마·상태·nullable·예시 대조 기준 |
-| S5 | `emotion_map_auth_erd_delta_v0_2.md` | `auth_identities` 대신 이메일 자격증명, 최초 계정 준비·서버 실패 제한 |
+| S1 | `MVP_PLAN.md`                   | Q1~Q38 최신 정책, 필수/제외 기능, 09시 배달, 원문 비연결 PRIVATE, 70개 수용 기준 |
+| S2 | `ERD.md` 및 기존 ERD 패키지 | 10개 기본 테이블, 4축 고정 컬럼, 취향 버전·일일 작업·수신 분리, 잠금·제약 |
+| S3 | `API_SPEC.md` | 이메일 전용 로그인, 22개 참여자 API, 공통 오류·재시도·Today·좋아요 계약, 추가 저장 제안 |
+| S4 | `openapi.yaml` | 경로·operationId·스키마·상태·nullable·예시 대조 기준 |
+| S5 | `ERD.md` | `auth_identities` 대신 이메일 자격증명, 최초 계정 준비·서버 실패 제한 |
 
 충돌 시 **사용자의 최신 확정 → S1의 제품 동작 → S3/S4의 현재 API 초안 → S5 인증 보완안 및 S2의 나머지 ERD** 순서로 해석한다. 같은 초안 내 JSON/설명 불일치는 임의 구현하지 않고 0~2시간 합의에서 수정한다.
 
@@ -75,7 +75,7 @@
 
 BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기능을 관리한다. BE2는 읽기 projection·접근 정책 및 **상세/삭제/좋아요 사용사례**를 구현한다. BE2가 모델을 변경해야 하면 BE1 리뷰를 거친다. 모델을 둘로 복사하거나, 코드 소유권을 이유로 같은 DB 트랜잭션을 별도 HTTP 요청으로 쪼개지 않는다.
 
-`POST /memories`와 `DELETE /memories/{id}`의 Controller가 다른 담당이어도 문제없다. 예를 들어 생성/조회/삭제 Controller 파일을 분리하고 동일 공통 모델을 참조한다. 삭제/좋아요의 최종 상태는 같은 저장 primitive와 잠금 순서를 사용한다.
+`POST /v1/memories`와 `DELETE /v1/memories/{id}`의 Controller가 다른 담당이어도 문제없다. 예를 들어 생성/조회/삭제 Controller 파일을 분리하고 동일 공통 모델을 참조한다. 삭제/좋아요의 최종 상태는 같은 저장 primitive와 잠금 순서를 사용한다.
 
 ## 3. 전체 API 담당표
 
@@ -83,28 +83,28 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 
 | 메서드 | 경로 | 주 담당 | 작업 | 책임 |
 |---|---|---|---|---|
-| POST | `/auth/login` | BE1 | A01 | 이메일·비밀번호 검증, 초대·계정 상태, access token |
-| GET | `/config` | BE1 | A03 | 반경·초기 중심·제한·09:00 설정; mock 값을 운영값으로 확정하지 않음 |
-| GET | `/atmosphere-axes` | BE1 | A03 | 정확한 4축 라벨·값·버전 |
-| GET | `/place-categories` | BE1 | A03 | 자체 8종 사전·코드·버전 |
-| GET | `/users/me` | BE1 | A02 | 본인 프로필, hasOnboarded, 현재 취향 버전 |
-| POST | `/users/me/onboarding` | BE1 | A02 | 고정 위치와 취향 v1 원자적 생성, 동일 재요청 처리 |
-| PATCH | `/users/me/preferences` | BE1 | A02 | 위치 제외, 버전 충돌 검사, 불변 취향 이력 추가 |
-| POST | `/memories/analyze` | BE1 | A04 | AI 분류 어댑터·미결 응답·분석 확인값 |
-| POST | `/memories` | BE1 | A05 | 직접 LETTER/PRIVATE 생성, 이미지 소비, 분류 최종 확정 |
-| POST | `/images` | BE1 | A06 | 임시 업로드·실파일 검증·소유권·만료 |
-| GET | `/memories/{id}/image` | BE1 | A06 | BE2 공통 열람 정책을 적용한 Bearer 이미지 반환 |
-| GET | `/letters/today` | BE2 | B03 | 일일 내부 상태→FE 5상태·사유·삭제 안내 |
-| GET | `/letters` | BE2 | B03 | 실제 수신 기록만; OR/AND 필터·커서 |
-| PATCH | `/letters/{deliveryId}/read` | BE2 | B03 | 수신자 확인, 최초 readAt 보존 |
-| POST | `/letters/{deliveryId}/like` | BE2 | B04 | 일회성 보관 트랜잭션·독립 복사·중복 성공 응답 |
-| GET | `/bookmarks` | BE2 | B05 | 본인 PRIVATE 목록, DIRECT/LETTER_COPY 구분 |
-| GET | `/memories/{id}` | BE2 | B05 | 역할별 상세 응답·ownerState·열람 권한 |
-| DELETE | `/memories/{id}` | BE2 | B05 | 본인 일반 삭제; 수신·좋아요 이력 및 독립 사본 유지 |
-| GET | `/users/me/memories` | BE2 | B05 | type=LETTER 조회, 누적 좋아요 수, 반응자 비노출 |
-| GET | `/places` | BE2 | B05 | 권한 있는 핀·개수만 bbox 조회; 자동 병합 없음 |
-| GET | `/places/{id}/memories` | BE2 | B05 | 가시 장소 경험만 조회; 페이지 중복 방지 |
-| POST | `/reports` | BE2 | B06 | 열람 권한·사유·details·중복 제출 방지·접수증 |
+| POST | `/v1/auth/login` | BE1 | A01 | 이메일·비밀번호 검증, 초대·계정 상태, access token |
+| GET | `/v1/config` | BE1 | A03 | 반경·초기 중심·제한·09:00 설정; mock 값을 운영값으로 확정하지 않음 |
+| GET | `/v1/atmosphere-axes` | BE1 | A03 | 정확한 4축 라벨·값·버전 |
+| GET | `/v1/place-categories` | BE1 | A03 | 자체 8종 사전·코드·버전 |
+| GET | `/v1/users/me` | BE1 | A02 | 본인 프로필, hasOnboarded, 현재 취향 버전 |
+| POST | `/v1/users/me/onboarding` | BE1 | A02 | 고정 위치와 취향 v1 원자적 생성, 동일 재요청 처리 |
+| PATCH | `/v1/users/me/preferences` | BE1 | A02 | 위치 제외, 버전 충돌 검사, 불변 취향 이력 추가 |
+| POST | `/v1/memories/analyze` | BE1 | A04 | AI 분류 어댑터·미결 응답·분석 확인값 |
+| POST | `/v1/memories` | BE1 | A05 | 직접 LETTER/PRIVATE 생성, 이미지 소비, 분류 최종 확정 |
+| POST | `/v1/images` | BE1 | A06 | 임시 업로드·실파일 검증·소유권·만료 |
+| GET | `/v1/memories/{id}/image` | BE1 | A06 | BE2 공통 열람 정책을 적용한 Bearer 이미지 반환 |
+| GET | `/v1/letters/today` | BE2 | B03 | 일일 내부 상태→FE 5상태·사유·삭제 안내 |
+| GET | `/v1/letters` | BE2 | B03 | 실제 수신 기록만; OR/AND 필터·커서 |
+| PATCH | `/v1/letters/{deliveryId}/read` | BE2 | B03 | 수신자 확인, 최초 readAt 보존 |
+| POST | `/v1/letters/{deliveryId}/like` | BE2 | B04 | 일회성 보관 트랜잭션·독립 복사·중복 성공 응답 |
+| GET | `/v1/bookmarks` | BE2 | B05 | 본인 PRIVATE 목록, DIRECT/LETTER_COPY 구분 |
+| GET | `/v1/memories/{id}` | BE2 | B05 | 역할별 상세 응답·ownerState·열람 권한 |
+| DELETE | `/v1/memories/{id}` | BE2 | B05 | 본인 일반 삭제; 수신·좋아요 이력 및 독립 사본 유지 |
+| GET | `/v1/users/me/memories` | BE2 | B05 | type=LETTER 조회, 누적 좋아요 수, 반응자 비노출 |
+| GET | `/v1/places` | BE2 | B05 | 권한 있는 핀·개수만 bbox 조회; 자동 병합 없음 |
+| GET | `/v1/places/{id}/memories` | BE2 | B05 | 가시 장소 경험만 조회; 페이지 중복 방지 |
+| POST | `/v1/reports` | BE2 | B06 | 열람 권한·사유·details·중복 제출 방지·접수증 |
 
 ## 4. BE1 상세 작업
 
@@ -145,7 +145,7 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 ### A03. 서비스 설정·4축·8종 카테고리 사전
 
 **선행 입력:** C01·C03; 실제 반경/중심/입력·파일 한도는 팀 합의  
-**산출물:** GET /config, /atmosphere-axes, /place-categories, 서버 설정 스키마·seed
+**산출물:** GET /v1/config, /v1/atmosphere-axes, /v1/place-categories, 서버 설정 스키마·seed
 
 - 고정 반경·초기 지도 중심·09:00/Asia/Seoul·인증모드 EMAIL_PASSWORD·제한값을 단일 서버 설정에서 반환한다.
 - 반경 1000m 등 mock 숫자를 승인 없이 운영값으로 확정하지 않는다. 필수 설정 누락은 CONFIGURATION_UNAVAILABLE로 다룬다.
@@ -159,7 +159,7 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 ### A04. 경험 본문 분석 API와 AI 분류 연동
 
 **선행 입력:** A03, C09, AI 담당자의 분류 스키마·모델 계약  
-**산출물:** POST /memories/analyze, 분석 DTO/어댑터·analysisToken 검증 기능, 실패 mock
+**산출물:** POST /v1/memories/analyze, 분석 DTO/어댑터·analysisToken 검증 기능, 실패 mock
 
 - 본문으로 분위기 4축과 자체 카테고리 0~3개를 추론하는 AI 모듈을 BE API에 연결한다. 사진/계정 취향으로 빈 축을 추측하지 않는다.
 - AI 근거 없음은 축 null로 반환하고 작성자 입력을 요구한다. 카테고리 근거 부족·AI 실패·서버 자체 장애를 구분한다.
@@ -174,7 +174,7 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 ### A05. 직접 경험 생성과 공용 경험 저장 기능
 
 **선행 입력:** A02~A04, A06; C07 Idempotency, C04 핀 가시성 계약  
-**산출물:** POST /memories, Memory/Place/Category 저장소·migration, 독립 PRIVATE 삽입/상태 변경 내부 포트
+**산출물:** POST /v1/memories, Memory/Place/Category 저장소·migration, 독립 PRIVATE 삽입/상태 변경 내부 포트
 
 - 본문·핀 좌표·필수 4축·카테고리 0~3개를 검증하고 memories와 memory_categories를 한 번에 생성한다.
 - 클라이언트의 ownerId/originKind/moderationStatus/dataOrigin/source ID는 받지 않는다. 직접 생성은 서버가 DIRECT로 기록한다.
@@ -191,7 +191,7 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 ### A06. 로컬 이미지 업로드·권한 조회·독립 파일 복사
 
 **선행 입력:** C02/C04 권한, C07 Idempotency, 실제 바이트·해상도·만료 계약  
-**산출물:** POST /images, GET /memories/{id}/image, image_uploads migration, LocalImageStore, 정리 절차
+**산출물:** POST /v1/images, GET /v1/memories/{id}/image, image_uploads migration, LocalImageStore, 정리 절차
 
 - JPG/PNG 한 장을 디코딩·형식·바이트·픽셀 검사하고 서버 재인코딩/메타데이터 제거를 적용한다. 미지원 자료는 거절한다.
 - 임시 업로드의 owner·STAGED/ATTACHED/EXPIRED·expires_at·첨부 대상을 관리한다. 경로 대신 imageId를 반환한다.
@@ -309,7 +309,7 @@ BE1은 `Memory`/`Place` 모델과 원자적 저장·상태 변경의 하위 기�
 ### B06. 신고 접수와 최소 운영 처리
 
 **선행 입력:** C04/C07, A01 계정 상태 변경 포트, A07 원문 숨김 포트; 신고 코드/운영자 정책  
-**산출물:** POST /reports, reports.details migration, 제한된 운영 명령/내부 도구, 처리 기록·운영 runbook
+**산출물:** POST /v1/reports, reports.details migration, 제한된 운영 명령/내부 도구, 처리 기록·운영 runbook
 
 - 현재 열람 가능한 경험만 신고하고 reason 코드·선택 details를 검증한다. 동일 제출 재요청은 C07으로 같은 접수증을 반환한다.
 - 신고 접수 성공을 즉시 콘텐츠 차단 완료로 표현하지 않는다. 새 신고 자체를 임의 UNIQUE로 금지하지 않는다.

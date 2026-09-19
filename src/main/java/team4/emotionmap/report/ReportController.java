@@ -1,6 +1,7 @@
 package team4.emotionmap.report;
 
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,13 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import team4.emotionmap.report.dto.ReportCreateRequest;
 import team4.emotionmap.report.dto.ReportResponse;
 
-/**
- * 신고 API. 인증 필요(JWT).
- *   POST /reports  -> 기억 신고 (중복 허용)
- * 현재 사용자 ID 는 인증 컨텍스트에서 얻는다.
- */
 @RestController
-@RequestMapping("/reports")
+@RequestMapping("/v1/reports")
 @RequiredArgsConstructor
 public class ReportController {
 
@@ -26,7 +22,7 @@ public class ReportController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ReportResponse create(@AuthenticationPrincipal Long userId,
+    public ReportResponse create(@AuthenticationPrincipal UUID userId,
                                  @Valid @RequestBody ReportCreateRequest request) {
         return reportService.create(userId, request);
     }

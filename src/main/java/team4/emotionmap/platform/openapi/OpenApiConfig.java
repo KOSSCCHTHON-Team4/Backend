@@ -29,8 +29,8 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("감정지도 API")
-                        .description("감정지도 백엔드 API 명세 (자동 생성). signup/login 외 엔드포인트는 JWT 필요.")
-                        .version("v0.0.1"))
+                        .description("현재 구현된 /v1 업무 API. /v1/auth/login 외에는 JWT와 계정 접근 권한 필요. 전체 제품 계약은 docs/openapi.yaml 참고.")
+                        .version("v1"))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER))
                 .components(new Components().addSecuritySchemes(BEARER,
                         new SecurityScheme()

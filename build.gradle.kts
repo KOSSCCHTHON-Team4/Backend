@@ -26,7 +26,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
 
     // --- Security + JWT ---
-    // signup/login 만 공개(permitAll), 그 외 모든 엔드포인트는 인증 필요.
+    // /v1/auth/login 만 공개, 나머지 업무 API 는 인증 필요.
     // 비밀번호 해시는 security starter 의 BCryptPasswordEncoder 사용.
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("io.jsonwebtoken:jjwt-api:0.13.0")
@@ -47,12 +47,6 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
 
-    // --- pgvector (JPA/Hibernate 용) ---
-    // 감정 임베딩 벡터를 PostgreSQL 의 vector 타입으로 저장/검색한다.
-    // JPA 엔티티에서 vector 를 매핑하려면 pgvector 공식 권장대로 hibernate-vector 를 쓴다.
-    //   (JDBC 전용인 com.pgvector:pgvector 가 아니라 이 모듈. 버전은 Spring Boot BOM 이 관리.)
-    // 엔티티 매핑 예: @JdbcTypeCode(SqlTypes.VECTOR) @Array(length = N) float[] embedding;
-    implementation("org.hibernate.orm:hibernate-vector")
 
     // --- Ops / 관측 (헬스체크 등) ---
     implementation("org.springframework.boot:spring-boot-starter-actuator")

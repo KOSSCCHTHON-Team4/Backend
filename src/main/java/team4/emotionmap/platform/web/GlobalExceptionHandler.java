@@ -9,6 +9,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -20,10 +21,12 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import team4.emotionmap.contracts.error.ApiError;
@@ -69,6 +72,11 @@ public class GlobalExceptionHandler {
         return writer.toResponse(e, request);
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> onResponseStatus(ResponseStatusException e, HttpServletRequest request) {
+        return onContractError(ApiErrorWriter.fromResponseStatus(e), request);
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> onNotReadable(HttpMessageNotReadableException e, HttpServletRequest request) {
         return writer.toResponse(translateUnreadable(e), request);
@@ -79,6 +87,10 @@ public class GlobalExceptionHandler {
         Optional<ContractError> contract = findCause(e, ContractError.class);
         if (contract.isPresent()) {
             return contract.get();
+        }
+        Optional<ResponseStatusException> responseStatus = findCause(e, ResponseStatusException.class);
+        if (responseStatus.isPresent()) {
+            return ApiErrorWriter.fromResponseStatus(responseStatus.get());
         }
         Optional<UnrecognizedPropertyException> unknown = findCause(e, UnrecognizedPropertyException.class);
         if (unknown.isPresent()) {
@@ -182,6 +194,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> onUnexpected(Exception e, HttpServletRequest request) {
+        ResponseStatus status = AnnotatedElementUtils.findMergedAnnotation(e.getClass(), ResponseStatus.class);
+        if (status != null) {
+            return onResponseStatus(new ResponseStatusException(status.code(), status.reason(), e), request);
+        }
         log.error("unhandled exception requestId={}", RequestIds.current(request), e);
         return writer.toResponse(ErrorCode.SERVER_ERROR, request);
     }

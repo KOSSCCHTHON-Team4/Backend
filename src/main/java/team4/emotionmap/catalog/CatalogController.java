@@ -12,7 +12,7 @@ import team4.emotionmap.contracts.config.ServiceConfigSource;
 
 /**
  * A03 사전·설정 API. 인증 필요(Bearer), <b>온보딩 전 허용 경로</b>다(API_SPEC 2.1).
- * 계정 상태(PENDING/SUSPENDED/CLOSED → 403) 재확인은 C02 Guard 가 A01 단계에서 붙인다.
+ * 계정 상태와 온보딩 전 허용 경로는 인증 필터의 AccountAccessGuard 가 매 요청 확인한다.
  * 사용자가 반경·사전을 바꿀 수 있는 경로는 없다.
  */
 @Tag(name = "catalog", description = "서비스 설정·4축·8종 카테고리 사전 (온보딩 전 허용)")
@@ -27,19 +27,19 @@ public class CatalogController {
 
     @Operation(operationId = "getConfig", summary = "고정 반경·제한·정기 배달 설정",
             description = "값은 서버 설정에서 오며 누락 시 503 CONFIGURATION_UNAVAILABLE. FE 는 기본 반경을 추정하지 않는다.")
-    @GetMapping("/config")
+    @GetMapping("/v1/config")
     public ServiceConfigResponse getConfig() {
         return ServiceConfigResponse.from(serviceConfig.current());
     }
 
     @Operation(operationId = "getAtmosphereAxes", summary = "확정 분위기 4축 사전 (version=1)")
-    @GetMapping("/atmosphere-axes")
+    @GetMapping("/v1/atmosphere-axes")
     public AtmosphereAxesResponse getAtmosphereAxes() {
         return AXES;
     }
 
     @Operation(operationId = "getPlaceCategories", summary = "자체 장소 카테고리 8종 (version=1)")
-    @GetMapping("/place-categories")
+    @GetMapping("/v1/place-categories")
     public PlaceCategoriesResponse getPlaceCategories() {
         return CATEGORIES;
     }
