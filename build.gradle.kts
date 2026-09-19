@@ -72,6 +72,7 @@ dependencies {
     // Docker/Testcontainers 를 사용하지 않는다. DB 가 필요한 통합테스트는
     // 각자 로컬 PostgreSQL 로만 수동 수행하고, CI 에는 포함하지 않는다.
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("com.tngtech.archunit:archunit:1.5.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

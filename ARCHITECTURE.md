@@ -52,98 +52,84 @@ Backend/                          ← 레포 루트 = Gradle 프로젝트 루트
 ├── CLAUDE.md
 ├── src/main/java/team4/emotionmap/
 │   ├── EmotionMapApplication.java
-│   ├── config/
-│   │   ├── StorageProperties.java     # app.storage.* (업로드 경로/검증)
-│   │   ├── EmbeddingProperties.java   # app.embedding.* placeholder 바인딩
-│   │   ├── JwtProperties.java         # app.jwt.* (시크릿/만료)
-│   │   └── OpenApiConfig.java         # OpenAPI 메타데이터 + JWT Bearer 스킴
-│   ├── domain/                        # JPA 엔티티 + enum
-│   │   ├── User.java                  # app_user
-│   │   ├── Place.java                 # place
-│   │   ├── Memory.java                # memory (pgvector embedding + emotion_tag)
-│   │   ├── Reaction.java              # reaction ((user,memory) UNIQUE)
-│   │   ├── LetterDelivery.java        # letter_delivery
-│   │   ├── Report.java                # report
-│   │   ├── Emotion.java               # 감정 enum (감정 태그 값)
-│   │   ├── Visibility.java            # LETTER / PRIVATE
-│   │   └── MemoryStatus.java          # ACTIVE / HIDDEN / DELETED
-│   ├── ai/                            # AI 포트 (구현은 추후, API 키 발급 후)
-│   │   ├── EmotionTagger.java         # content -> 감정 태그 (Claude 구현 예정)
-│   │   ├── Embedder.java              # content -> 임베딩 벡터 (Voyage 등 구현 예정)
-│   │   └── ContentModerator.java      # content 필터/모더레이션 (Claude 구현 예정)
-│   ├── repository/                    # Spring Data JPA (Memory 에 벡터 유사도 검색)
-│   │   ├── UserRepository.java
-│   │   ├── PlaceRepository.java
-│   │   ├── MemoryRepository.java
-│   │   ├── ReactionRepository.java
-│   │   ├── LetterDeliveryRepository.java
-│   │   └── ReportRepository.java
-│   ├── dto/                           # 요청/응답 DTO
-│   │   ├── (auth) SignupRequest / LoginRequest / LoginResponse
-│   │   ├── (user) UserResponse / LocationUpdateRequest
-│   │   ├── (memory) MemoryCreateRequest / MemoryResponse
-│   │   ├── (etc) PlaceResponse / ReactionResponse / LetterResponse
-│   │   │         ReportCreateRequest / ReportResponse / ImageUploadResponse
-│   ├── storage/                       # 이미지 로컬 저장/조회
-│   │   ├── ImageStorageService.java   # UUID 키 저장/로드 + 검증 + path traversal 방어
-│   │   ├── StoredImage.java
-│   │   ├── InvalidUploadException.java
-│   │   └── ImageNotFoundException.java
-│   ├── controller/                    # REST 컨트롤러 (auth 외 전부 JWT 필요)
-│   │   ├── AuthController.java         # POST /auth/signup, /auth/login (공개)
-│   │   ├── UserController.java         # GET /users/me, PATCH /users/me/location
-│   │   ├── PlaceController.java        # GET /places?bbox=, /places/{id}/memories
-│   │   ├── MemoryController.java       # POST/GET/DELETE /memories, POST reactions
-│   │   ├── LetterController.java       # GET /letters, PATCH /letters/{id}/read
-│   │   ├── ReportController.java       # POST /reports
-│   │   └── ImageController.java        # POST(multipart→JSON) / GET(binary) 분리
-│   ├── security/                       # Spring Security + JWT
-│   │   ├── SecurityConfig.java         # signup/login permitAll, 그 외 authenticated
-│   │   ├── JwtTokenProvider.java       # 토큰 발급/검증 (jjwt)
-│   │   └── JwtAuthenticationFilter.java# Bearer 검증 → SecurityContext(principal=userId)
-│   ├── service/
-│   │   ├── AuthService.java            # 회원가입/로그인(BCrypt + JWT 발급)
-│   │   ├── UserService.java
-│   │   ├── PlaceService.java
-│   │   ├── MemoryService.java          # 모더레이션·감정태그·임베딩(AI 포트) 배선
-│   │   ├── ReactionService.java
-│   │   ├── LetterService.java
-│   │   └── ReportService.java
-│   └── (resources)
-│       ├── application.yml            # 공통 (default profile = local)
-│       ├── application-local.yml      # 로컬 (각자 로컬 PostgreSQL, 환경변수 오버라이드)
-│       ├── application-ci.yml         # CI (DB 자동구성 비활성화)
-│       ├── application-prod.yml       # 배포 (시크릿 = 환경변수)
-│       └── db/migration/V1__init.sql  # 6개 테이블 + pgvector + password_hash
+│   ├── account/                       # 회원가입·로그인·프로필, app_user 소유
+│   │   ├── User.java / UserRepository.java
+│   │   ├── AuthService.java / AuthController.java
+│   │   ├── UserService.java / UserController.java
+│   │   └── dto/                       # 인증·프로필 요청/응답
+│   ├── memory/                        # 기억 상태·공개 범위·조회, memory 소유
+│   │   ├── Memory.java / MemoryRepository.java / MemoryService.java
+│   │   ├── Emotion.java / Visibility.java / MemoryStatus.java
+│   │   ├── MemoryController.java      # POST/GET/DELETE /memories
+│   │   ├── PlaceMemoryController.java # GET /places/{id}/memories
+│   │   ├── dto/                       # MemoryCreateRequest / MemoryResponse
+│   │   ├── reaction/                  # 기억의 하위 기능, reaction 소유
+│   │   │   ├── Reaction.java / ReactionRepository.java / ReactionService.java
+│   │   │   ├── ReactionController.java # POST /memories/{id}/reactions
+│   │   │   └── dto/                   # ReactionResponse
+│   │   └── ai/                        # 기억이 사용하는 포트, 구현은 추후
+│   │       ├── ContentModerator.java / EmotionTagger.java / Embedder.java
+│   │       └── EmbeddingProperties.java # app.embedding.* 바인딩
+│   ├── place/                         # 장소·지도 영역 조회, place 소유
+│   │   ├── Place.java / PlaceRepository.java / PlaceService.java
+│   │   ├── PlaceController.java       # GET /places?bbox=
+│   │   └── dto/                       # PlaceResponse
+│   ├── letter/                        # 수신 목록·읽음 상태, letter_delivery 소유
+│   │   ├── LetterDelivery.java / LetterDeliveryRepository.java / LetterService.java
+│   │   ├── LetterController.java      # GET /letters, PATCH /letters/{id}/read
+│   │   └── dto/                       # LetterResponse
+│   ├── report/                        # 신고 접수, report 소유
+│   │   ├── Report.java / ReportRepository.java / ReportService.java
+│   │   ├── ReportController.java      # POST /reports
+│   │   └── dto/                       # ReportCreateRequest / ReportResponse
+│   ├── media/                         # 이미지 업로드·조회, 엔티티 없는 기능 모듈
+│   │   ├── ImageController.java / ImageStorageService.java
+│   │   ├── StorageProperties.java     # app.storage.* 바인딩
+│   │   ├── StoredImage.java / InvalidUploadException.java / ImageNotFoundException.java
+│   │   └── dto/                       # ImageUploadResponse
+│   └── platform/                      # 업무 모듈에 의존하지 않는 기술 지원
+│       ├── security/
+│       │   ├── SecurityConfig.java / JwtAuthenticationFilter.java
+│       │   └── JwtTokenProvider.java / JwtProperties.java
+│       └── openapi/OpenApiConfig.java # OpenAPI 메타데이터 + JWT Bearer 스킴
+├── src/main/resources/
+│   ├── application.yml               # 공통 (default profile = local)
+│   ├── application-local.yml         # 로컬 PostgreSQL, 환경변수 오버라이드
+│   ├── application-ci.yml            # DB 비연결 테스트용, 앱 부팅용 아님
+│   ├── application-prod.yml          # 배포 (시크릿 = 환경변수)
+│   └── db/migration/V1__init.sql      # 중앙 Flyway 이력 유지
 └── src/test/java/team4/emotionmap/
-    ├── StoragePropertiesTest.java     # DB 비연결 단위테스트
-    └── JwtTokenProviderTest.java      # JWT 발급/검증 왕복
+    ├── architecture/ModuleArchitectureTest.java # DB 비연결 모듈 경계 검사
+    └── platform/security/JwtTokenProviderTest.java # JWT 발급·검증
 ```
 
 > Docker 를 쓰지 않으므로 `docker-compose.yml` 은 없다. 백엔드 명령은 레포 루트에서 실행한다.
-> (아래 구 구조 목록은 참고용이며, 위 트리가 최신이다.)
 
-<!-- legacy structure detail (kept for reference) -->
-<details><summary>상세 파일 목록(구 버전)</summary>
+### 2-1. 모듈 경계와 의존성 규칙
 
-```text
-(구 모노레포 시절 상세 목록 — 위 트리로 대체됨)
-
-    │       ├── MemoryService.java          # 모더레이션·감정태그·임베딩(AI 포트) 배선
-    │       ├── ReactionService.java
-    │       ├── LetterService.java
-    │       └── ReportService.java
-    ├── src/main/resources/
-    │   ├── application.yml        # 공통 (default profile = local)
-    │   ├── application-local.yml  # 로컬 (각자 로컬 PostgreSQL, 환경변수 오버라이드 가능)
-    │   ├── application-ci.yml     # GitHub Actions (DB 자동구성 비활성화)
-    │   ├── application-prod.yml   # 배포 (모든 시크릿 = 환경변수)
-    │   └── db/migration/V1__init.sql   # 6개 테이블 + pgvector extension/인덱스
-    └── src/test/java/team4/emotionmap/
-        └── StoragePropertiesTest.java  # DB 비연결 단위테스트
-```
-
-</details>
+- **단일 Gradle 모듈 안에서 업무 기능별 패키지로 나눈다.** 각 기능이 Entity·Repository·
+  Service·Controller·DTO를 함께 소유하며, 작은 기능에 계층별 하위 폴더를 반복하지 않는다.
+- `account`는 인증과 프로필이 공유하는 사용자 데이터를 소유한다. `memory.reaction`은
+  별도 최상위 모듈이 아니라 기억의 하위 기능이다. 이것이 두 엔티티의 합병이나
+  JPA 연관관계 추가를 의미하지는 않는다.
+- **URL 계층과 코드 소유권은 별개다.** `/places/{id}/memories`는 기억 조회이므로
+  `memory.PlaceMemoryController`가 소유한다. 장소 모듈이 기억 서비스에 의존하지 않는다.
+- 현재 허용하는 모듈 간 직접 의존성은 **`account` → `platform.security.JwtTokenProvider`**
+  하나다. Java 타입이 `public`이라고 해서 다른 모듈에 공개된 계약은 아니다.
+- 다른 모듈의 Entity·Repository·내부 Service·DTO를 직접 참조하지 않는다. 새 협업이
+  필요하면 소유 모듈의 제한된 공개 API를 먼저 정의하고, 해당 계약만 경계 테스트에
+  명시적으로 허용한다. 인터페이스·Facade를 호출자 없이 미리 만들지 않는다.
+- 모듈 사이에는 ID와 필요한 결과를 전달한다. 신고 처리에서 기억을 숨겨야 한다면
+  기억 모듈의 기능을 호출하며, 신고 모듈이 기억 저장소에 직접 접근하지 않는다.
+- `platform`은 업무 모듈에 역으로 의존하지 않는다. 설정은 소유 기능과 함께 둔다:
+  저장소 설정은 `media`, 임베딩 설정은 `memory.ai`, JWT 설정은 `platform.security`.
+- `ModuleArchitectureTest`가 선언된 패키지 소속, 허용한 공개 계약 외 접근 금지,
+  모듈 간 순환 금지를 검사한다. `./gradlew test`로 실행하며 DB는 필요 없다.
+- **패키지 경계는 DB의 독립성을 뜻하지 않는다.** FK와 삭제 전파 정책은 §4와
+  Flyway에 그대로 남는다. 기억 삭제가 반응·배달·신고를 함께 삭제하는 생명주기를
+  변경할 때는 관련 모듈의 정책도 함께 검토한다.
+- 이번 재배치는 URL·JSON·테이블·환경변수 이름을 유지한다. 인증·객체별 인가 정책이나
+  AI 구현의 유무도 변경하지 않는다.
 
 ---
 
@@ -468,8 +454,8 @@ git push -u origin feat/emotion-record-api
 
 ## 11. 코딩 컨벤션 (Lombok · JPA 엔티티 · pgvector)
 
-바로 작업할 수 있도록 `domain` / `repository` / `dto` / `service` 에 양식 예시를 넣어 두었다.
-새 도메인은 이 패턴을 복사해 시작한다.
+기존 기능 패키지의 Entity·Repository·Service·Controller·DTO 패턴을 재사용한다.
+새 기능의 소유 모듈을 먼저 정하고, 새 최상위 모듈이면 §2-1의 경계 검사에도 등록한다.
 
 ### 11-1. Lombok
 
@@ -525,8 +511,8 @@ List<Memory> findNearestByEmbedding(@Param("embedding") float[] embedding,
 ### 11-4. 감정 태그 · 임베딩 채우기 (AI 포트)
 
 - `emotion_tag` 와 `embedding` 은 **API 요청에서 받지 않고 서버가 채운다**.
-- `ai/EmotionTagger` (Claude 구현 예정) 가 `content` → 감정 태그를 추출한다.
-- `ai/Embedder` (Voyage 등 구현 예정) 가 `content` → 임베딩 벡터를 생성한다.
+- `memory/ai/EmotionTagger` (Claude 구현 예정) 가 `content` → 감정 태그를 추출한다.
+- `memory/ai/Embedder` (Voyage 등 구현 예정) 가 `content` → 임베딩 벡터를 생성한다.
 - 두 포트는 **아직 구현 빈이 없다.** `MemoryService` 는 `Optional<...>` 로 주입받아,
   구현이 등록되면 자동으로 채우고 없으면 null 인 채 저장한다(추후 배치로 보강 가능).
 - 실제 구현은 API 키 발급 후 `@Component` 로 등록만 하면 서비스 수정 없이 연결된다.
@@ -600,14 +586,14 @@ sequenceDiagram
 - 확인 경로 (앱 실행 후):
   - Swagger UI : `http://localhost:8080/swagger-ui.html` — 브라우저에서 보고 직접 호출 테스트
   - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
-- 문서 메타데이터(제목/버전/설명)는 `config/OpenApiConfig` 에서 정의. 경로는 `application.yml`
+- 문서 메타데이터(제목/버전/설명)는 `platform/openapi/OpenApiConfig` 에서 정의. 경로는 `application.yml`
   의 `springdoc.*` 에 명시.
 - 새 컨트롤러를 추가하면 **자동으로 문서에 반영**된다. 설명을 더하고 싶으면
   `@Operation`, `@Schema`, `@Parameter` 애노테이션을 필요할 때만 붙인다(필수 아님).
 - 프론트엔드에는 Swagger UI 링크를 공유하면 된다.
 
-> 세부 API 명세(엔드포인트 목록/요청·응답 예시)는 추후 각 컨트롤러가 구현되면서 채워진다.
-> 현재는 이미지 API(`/api/images`)만 문서에 나타난다.
+> 인증·프로필·장소·기억·반응·편지·신고·이미지 API가 컨트롤러에서 자동 생성된다.
+> 장소별 기억 조회와 반응은 각각 기억 모듈의 전용 컨트롤러에 표시된다.
 
 ---
 
