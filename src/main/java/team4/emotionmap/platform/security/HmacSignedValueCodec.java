@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
@@ -42,6 +43,7 @@ public class HmacSignedValueCodec implements SignedValueCodec {
 
     private final byte[] rootSecret;
 
+    @Autowired
     public HmacSignedValueCodec(SigningProperties properties) {
         this(properties.secret());
     }
