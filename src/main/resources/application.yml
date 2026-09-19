@@ -42,25 +42,11 @@ app:
     # 프로필별로 오버라이드. 여기서는 안전한 기본값만 둔다.
     upload-dir: ${APP_UPLOAD_DIR:./uploads}
     # 업로드 검증: 허용 확장자와 최대 크기. 무제한 업로드는 위험하므로 반드시 둔다.
-    allowed-extensions: ${APP_STORAGE_ALLOWED_EXT:jpg,jpeg,png,webp}
+    allowed-extensions: ${APP_STORAGE_ALLOWED_EXT:jpg,jpeg,png}
     max-size-bytes: ${APP_STORAGE_MAX_SIZE_BYTES:10485760}   # 10 MB
 
   # ------------------------------------------------------------------------
-  # 임베딩 설정 (자리만 마련. 실제 모델/키는 나중에 정한 뒤 환경변수로 주입한다)
-  #   * API 키는 절대 파일에 하드코딩하지 않는다. EMBEDDING_API_KEY 환경변수로만 주입.
-  #   * 벡터 차원(dimension)은 실제 임베딩 모델이 정해지면 그 값으로 맞추고,
-  #     Flyway 마이그레이션의 vector(N) 도 함께 변경한다. (현재 N 은 미정 = placeholder)
-  #   * 참고: Anthropic 은 자체 임베딩 모델이 없어 별도 임베딩 제공자를 사용한다.
-  # ------------------------------------------------------------------------
-  embedding:
-    enabled: ${EMBEDDING_ENABLED:false}   # 기능 준비 전까지 기본 비활성
-    provider: ${EMBEDDING_PROVIDER:}      # 예: voyage, openai, local ... (미정)
-    model: ${EMBEDDING_MODEL:}            # 예: voyage-3-large ... (미정)
-    api-key: ${EMBEDDING_API_KEY:}        # 환경변수로만 주입 (커밋 금지)
-    dimension: ${EMBEDDING_DIMENSION:1024} # 모델 확정 시 그 차원으로. Flyway 와 일치시킬 것
-
-  # ------------------------------------------------------------------------
-  # JWT 설정. signup/login 을 제외한 모든 엔드포인트는 Bearer 토큰이 필요하다.
+  # JWT 설정. /v1/auth/login 을 제외한 업무 API 는 Bearer 토큰이 필요하다.
   #   * secret 은 절대 커밋 금지. 배포/CI 에서는 JWT_SECRET 환경변수로 주입한다.
   #   * 아래 기본값은 로컬 개발 전용(길이 충분). 실제 배포에선 반드시 교체한다.
   # ------------------------------------------------------------------------

@@ -1,51 +1,68 @@
 package team4.emotionmap.platform.security;
 
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ResponseStatusException;
 
-/**
- * Bearer 토큰을 검증해 SecurityContext 에 인증을 설정하는 필터.
- * principal 로 userId(Long) 를 넣는다 -> 컨트롤러에서 @AuthenticationPrincipal Long userId 로 받는다.
- * 토큰이 없거나 유효하지 않으면 인증을 설정하지 않는다(이후 authorizeHttpRequests 에서 401 처리).
- */
+/** Validates UUID JWT subjects and rechecks current account access on every request. */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider tokenProvider;
+    private final AccountAccessGuard accountAccessGuard;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, AccountAccessGuard accountAccessGuard) {
         this.tokenProvider = tokenProvider;
+        this.accountAccessGuard = accountAccessGuard;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain)
-            throws ServletException, IOException {
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return (request.getMethod().equals("POST") && path.equals("/v1/auth/login"))
+                || path.equals("/swagger-ui.html") || path.startsWith("/swagger-ui/")
+                || path.equals("/v3/api-docs") || path.startsWith("/v3/api-docs/")
+                || path.equals("/actuator/health");
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith(BEARER_PREFIX)) {
-            String token = header.substring(BEARER_PREFIX.length());
+            UUID userId;
             try {
-                Long userId = tokenProvider.parseUserId(token);
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (Exception e) {
-                // 유효하지 않은 토큰: 인증 미설정. (로깅은 필요 시 추가)
+                userId = tokenProvider.parseUserId(header.substring(BEARER_PREFIX.length()));
+            } catch (JwtException | IllegalArgumentException e) {
                 SecurityContextHolder.clearContext();
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "INVALID_TOKEN");
+                return;
             }
+            String role;
+            try {
+                role = accountAccessGuard.requireAccess(userId, request.getServletPath());
+            } catch (ResponseStatusException e) {
+                SecurityContextHolder.clearContext();
+                response.sendError(e.getStatusCode().value(), e.getReason());
+                return;
+            }
+            var authentication = new UsernamePasswordAuthenticationToken(
+                    userId, null, List.of(new SimpleGrantedAuthority(role)));
+            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
         }
         filterChain.doFilter(request, response);
     }

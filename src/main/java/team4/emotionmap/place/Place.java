@@ -6,26 +6,27 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * place 테이블 매핑 (V1__init.sql). 위경도 + 이름. 중복 허용.
- */
 @Entity
-@Table(name = "place")
+@Table(name = "places")
 @Getter
+@Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class Place {
-
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @Column(nullable = false, length = 200)
-    private String name;
+    @Column(columnDefinition = "text")
+    private String label;
 
     @Column(nullable = false)
     private Double lat;
@@ -33,10 +34,7 @@ public class Place {
     @Column(nullable = false)
     private Double lng;
 
-    @Builder
-    private Place(String name, Double lat, Double lng) {
-        this.name = name;
-        this.lat = lat;
-        this.lng = lng;
-    }
+    @Builder.Default
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
 }

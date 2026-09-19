@@ -1,103 +1,66 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for work in this backend repository.
 
 ## Project status
 
-"감정지도" (Emotion Map) is a hackathon project — users leave a **Memory** (text +
-optional photo) at a **Place**; the server derives an emotion tag from the text and
-an embedding for vector similarity search. Other domains: Reaction, LetterDelivery
-(deliver a memory to a receiver with a score), Report. This is the backend team's
-shared starting baseline. See `ARCHITECTURE.md` for the ERD, diagrams, and rationale.
+"감정지도" (Emotion Map) stores place-based experiences and delivers anonymous LETTERs to matching users. Users may keep a LETTER as an independent PRIVATE copy. Product policy is in `docs/MVP_PLAN.md`; the data contract is `docs/ERD.md`; the complete API contract is `docs/API_SPEC.md` and `docs/openapi.yaml`.
 
-Domain (V1): app_user, place, memory, reaction, letter_delivery, report.
+The current code contains the UUID persistence cutover and migrated existing callers, not the complete MVP. Scheduling, AI classification/moderation/tie-breaking, full pagination/error/idempotency contracts and operator tooling are not implemented. Never describe a planned contract or test scenario as an implemented/verified feature.
 
-- **emotion_tag** on memory is auto-derived by Claude (sonnet-5) from `content` — NOT
-  accepted in the request. **embedding** is produced by a separate embedding model
-  (Voyage etc., TBD) — Claude cannot embed. Both are filled server-side via the
-  `memory/ai/EmotionTagger` and `memory/ai/Embedder` ports (Optional-injected; no impl yet).
-- MemoryStatus: ACTIVE / HIDDEN / DELETED. Visibility: LETTER / PRIVATE.
+- Business API paths MUST be `/v1/{endpoint}`. Do not retain unversioned or `/api/...` aliases. Swagger/OpenAPI and Actuator are separate infrastructure paths.
+- Entities map `app_users`, `email_password_credentials`, `user_preference_versions`, `places`, `place_categories`, `memories`, `memory_categories`, `daily_selections`, `letter_deliveries`, `reports`, and `image_uploads`.
+- UUID IDs and scalar FK fields; category IDs/axes are smallint. `Instant` maps timestamptz; service dates use `LocalDate` in Asia/Seoul. Composite keys preserve category slots and user/date selections.
+- Four mandatory axes use -1/+1. Direct manual creation records USER sources, NOT_RUN analyses and PENDING moderation. Never invent AI success, safe approval, preferences or delivery history.
+- ContentStatus: ACTIVE/HIDDEN/DELETED; DistributionType: LETTER/PRIVATE; OriginKind: DIRECT/LETTER_COPY. Soft deletion preserves delivery/like history and independent copies. No source-copy FK, log pair, response cache or shared image file.
+- Reaction, emotion-tag and embedding models are removed. Reintroducing vector infrastructure is not a prerequisite for the four-axis design.
 
 ## Stack
 
-- Spring Boot 4.1.0, Java 21 (LTS), Gradle Wrapper 9.0.0 (**Kotlin DSL**: `*.gradle.kts`)
-- **Security**: Spring Security + JWT (jjwt 0.13.x). Only `POST /auth/signup` and
-  `POST /auth/login` are public; all other endpoints require `Authorization: Bearer <token>`.
-  Controllers read the current user via `@AuthenticationPrincipal Long userId` (the filter
-  puts userId as principal). Passwords are BCrypt-hashed in `app_user.password_hash`.
-  `JWT_SECRET` env var in CI/prod (never commit). See `ARCHITECTURE.md` §14.
-- **API docs**: springdoc-openapi 3.1.x (Swagger UI). Auto-generated from controllers/DTOs.
-  `/swagger-ui.html`, `/v3/api-docs`. Metadata in `platform/openapi/OpenApiConfig`. 3.1.x is the
-  Spring Boot 4.x line (2.9.x is for Boot 3.x). See `ARCHITECTURE.md` §13.
-- PostgreSQL 17 + **pgvector**. JPA mapping uses **hibernate-vector** (NOT the JDBC-only
-  `com.pgvector:pgvector`). Map with `@JdbcTypeCode(SqlTypes.VECTOR) @Array(length=N) float[]`.
-- **Lombok** for boilerplate. Entities: `@Getter` + `@NoArgsConstructor(PROTECTED)` + `@Builder`
-  only (no `@Setter`/`@Data`). Beans: `@RequiredArgsConstructor` + `@Slf4j`. DTOs: Java `record`.
-  Shared settings in `lombok.config` (repo root).
-- Flyway for DB migrations (`src/main/resources/db/migration/`); V1 enables the
-  `vector` extension and adds a `vector(1024)` embedding column
-- Package root: `team4.emotionmap` (account / memory / place / letter / report / media / platform).
-  Entity, Repository, Service, Controller, and DTO belong to their owning feature.
-- Images: optional (content required). Stored on the local filesystem under
-  `app.storage.upload-dir` with a **UUID key**; DB (`memory.image_path`) holds only the key.
-  Two APIs: `POST /api/images` (multipart → JSON `{key,url}`) and `GET /api/images/{key}`
-  (binary). Memory JSON carries `imageKey`/`imageUrl`, never binary. Upload is validated
-  (extension + size) with path-traversal defense. See `ARCHITECTURE.md` §12.
-- Embedding model is **not yet chosen**. `app.embedding.*` in `application.yml` is a
-  placeholder only; the model/provider/key are injected later via `EMBEDDING_*` env
-  vars (`EMBEDDING_API_KEY` never committed). The `vector(1024)` dimension is a
-  temporary value — change it (new migration) once the real model is picked. Note:
-  Anthropic has no first-party embedding model, so a separate provider is required.
-
-## Key policies
-
-- **No Docker.** Each developer installs PostgreSQL 17 + pgvector locally.
-- **Never upload DB data/schema dumps to GitHub.** CI does NOT connect to any DB;
-  it runs compile + DB-less unit tests only. DB-backed integration tests are run
-  manually on each developer's local machine.
-- Secrets are never committed — the `prod` profile references env vars only.
-
-## Commands
-
-Backend-only repo (`KOSSCCHTHON-Team4/Backend`): project root = repo root. Run all
-Gradle commands from the repo root. CI/release workflows live under `.github/`.
-
-```bash
-# one-time local setup (macOS example) — see ARCHITECTURE.md for details
-brew install postgresql@17 pgvector && brew services start postgresql@17
-
-./gradlew bootRun     # run app (default profile = local; needs local DB)
-./gradlew test        # DB-less unit tests (no Docker, no DB needed)
-./gradlew build       # build runnable JAR
-```
-
-- Active profile via `SPRING_PROFILES_ACTIVE` (local | ci | prod). Default: local.
-- Local DB connection overridable via `DB_URL` / `DB_USERNAME` / `DB_PASSWORD`.
+- Spring Boot 4.1.0, Java 21 LTS, Gradle Wrapper 9.0.0, Kotlin DSL.
+- PostgreSQL 17, Spring Data JPA, Flyway; `ddl-auto: validate` only.
+- Immutable historical V1 still requires pgvector during initial migration. Current entities do not use vector or hibernate-vector.
+- Lombok: `@Getter`, protected no-args constructor, `@Builder`; no `@Setter`/`@Data`. DTOs use Java records. Follow `lombok.config`.
+- Spring Security and jjwt: only `POST /v1/auth/login` is a public business API. JWT subject and `@AuthenticationPrincipal` are UUID. Check current ACTIVE/onboarding state, not only token validity.
+- Passwords use BCrypt in separate `email_password_credentials`. No public signup. Initial credentials require a secure internal provisioning procedure; never seed shared plaintext passwords.
+- springdoc-openapi 3.1.x: `/swagger-ui.html`, `/v3/api-docs` describe actual controllers. Static `docs/openapi.yaml` describes the wider product contract.
+- Images: local UUID paths under `app.storage.upload-dir`. `POST /v1/images` returns an owner-bound staged imageId; `GET /v1/memories/{id}/image` authorizes against the experience. No public raw-key image endpoint. JPEG/PNG are decoded, bounded and re-encoded.
 
 ## Architecture
 
-Single Gradle module, organized by business feature. Within each feature:
-Controller → Service → Repository (Spring Data JPA) → PostgreSQL+pgvector.
-`account` owns authentication and profiles; `memory.reaction` is a memory subfeature.
-`memory.ai` owns its AI ports and embedding configuration. `media` owns image storage
-and its configuration. `platform` owns security and OpenAPI support.
+Single Gradle module, feature packages under `team4.emotionmap`: account / memory / place / letter / report / media / platform. Each feature owns its Entity, Repository, Service, Controller and DTO.
 
-Do not access another module's entities, repositories, internal services, or DTOs.
-The only current cross-module contract is `account` → `platform.security.JwtTokenProvider`.
-Define an explicit public contract before introducing another cross-module dependency;
-update `architecture/ModuleArchitectureTest` to allow only that contract. Platform must
-not depend on business modules. ArchUnit checks module placement, access, and cycles
-in `./gradlew test`, without a database.
+Module dependencies must remain acyclic and restricted to the exact public contracts in `architecture/ModuleArchitectureTest`. Shared same-DB transactions deliberately use a small set of explicit model/repository/service contracts; this does not make every public type a cross-module API. Review new dependencies and update the explicit allowlist, never grant wildcard package access.
 
-URL nesting does not determine ownership: `/places/{id}/memories` belongs to
-`memory.PlaceMemoryController`, and reactions to `memory.reaction.ReactionController`.
-Schema is owned centrally by Flyway; JPA runs `ddl-auto: validate` only. Columns are
-snake_case. ID references and existing FK delete policies remain unchanged.
-The `ci` profile disables database auto-configuration for DB-less tests; it is not
-a standalone application boot profile. See `ARCHITECTURE.md` §2-1.
+`MemoryReadAccess` is owned by memory and implemented by letter. `AccountAccessGuard` is owned by platform and implemented by account. Platform must not import business entities or repositories. Do not split one transactional use case into internal HTTP calls or independent commits.
 
-## Constraints
+URL nesting does not determine ownership: place-memory lookup and protected memory-image retrieval belong to memory. JPA scalar UUID FKs do not replace SQL foreign keys; Flyway owns RESTRICT constraints and indexes.
 
-- Organization rule: never paste customer personal data into the chat or upload
-  files containing it. Any emotion/location data used for development must be
-  synthetic or anonymized.
+## Migration safety
+
+- Never edit an already applied migration, including V1.
+- V2 transitions only EMPTY legacy tables. It locks all six tables and fails without deleting data if any contains records. Use a separate empty development DB, not an automatic reset or guessed backfill.
+- V3 seeds eight fixed categories. Check latest migration numbers before adding another file; coordinate shared numbering and FK changes.
+- Run PostgreSQL constraints against a dedicated local test DB after all migrations: `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f src/test/resources/db/erd_constraints.sql`.
+
+## Commands
+
+Run from the repository root (`KOSSCCHTHON-Team4/Backend`).
+
+```bash
+brew install postgresql@17 pgvector
+brew services start postgresql@17
+./gradlew bootRun     # default local profile; needs actual DB
+./gradlew test        # DB-less unit and architecture tests
+./gradlew build      # tests and executable JAR
+```
+
+Profiles: `SPRING_PROFILES_ACTIVE=local|ci|prod`; default local. Override `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`. The ci profile disables DB auto-configuration for tests and is not a standalone application boot profile. Inject `JWT_SECRET` and deployment secrets via environment variables. See `ARCHITECTURE.md` for setup and feature boundaries.
+
+## Key policies
+
+- Use **graphify for code analysis** before targeted source inspection. Keep generated graphs outside tracked project files unless explicitly requested. Graph extraction alone is not compilation or behavioral verification.
+- No Docker. Local PostgreSQL only. CI runs DB-less tests; DB-backed checks run separately on local machines.
+- Never upload DB dumps or real customer data. Synthetic/anonymized fixtures only. Flyway schema code may be committed; database dumps may not.
+- Never commit credentials, tokens or provider keys. Do not log passwords, private text, upload paths or source-copy ID pairs.
+- Work on task branches and publish PRs; do not push directly to main.

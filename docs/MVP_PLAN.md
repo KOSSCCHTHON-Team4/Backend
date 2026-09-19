@@ -620,26 +620,26 @@ OpenAI Moderation은 텍스트와 이미지 입력을 지원하며, 결과의 `f
 
 | 메서드·경로 제안 | 동작 |
 |---|---|
-| POST /auth/login | 초대 접근을 확인하는 로그인 |
-| GET /users/me | 본인 고정 위치·4축·선택 설명·설정 상태 |
-| POST /users/me/onboarding | 위치 1회 + 정확한 4축 -1/+1 + 선택 설명 |
-| PATCH /users/me/preferences | 4축·설명 수정. 위치 변경 없음, 선호 버전 관리 |
-| GET /atmosphere-axes | 확정 4축·양쪽 값·표시 순서 |
-| GET /place-categories | 자체 카테고리 8종·내부 ID·정의·버전 |
-| POST /memories/analyze | 본문에서 4축·0~3개 카테고리 추론. 미결 축은 작성자 입력 필요 표시 |
-| POST /memories | 핀 좌표·본문·선택 사진·확인한 4축·0~3개 카테고리로 LETTER 또는 PRIVATE 최종 저장 |
-| GET /memories/{id} | 작성자·소유자·실제 수신자 권한 검사 |
-| DELETE /memories/{id} | 원문 또는 본인 PRIVATE 일반 삭제. 독립 사본에는 전파 없음 |
-| GET /memories/{id}/image | 해당 경험의 상태·권한 확인 후 로컬 파일 제공 |
-| GET /places?bbox=... | 권한 있는 기록만 핀·집계 |
-| GET /places/{id}/memories | 권한 있는 위치별 경험 |
-| GET /users/me/memories?type=LETTER | 보낸 LETTER의 상태·누적 좋아요 수 |
-| GET /letters?atmospheres=...&categories=...&cursor=...&limit=... | 실제 수신 이력. 분위기·카테고리 내부 OR, 종류 간 AND |
-| GET /letters/today | 오늘의 저장된 선정 결과·대기·후보 없음 상태 조회 |
-| PATCH /letters/{deliveryId}/read | 수신자 본인의 읽음 기록 |
-| POST /letters/{deliveryId}/like | 한 번의 좋아요·독립 PRIVATE 생성 |
-| GET /bookmarks | 본인 PRIVATE 목록 |
-| POST /reports | 열람 권한이 있는 대상에 대한 신고 |
+| POST /v1/auth/login | 초대 접근을 확인하는 로그인 |
+| GET /v1/users/me | 본인 고정 위치·4축·선택 설명·설정 상태 |
+| POST /v1/users/me/onboarding | 위치 1회 + 정확한 4축 -1/+1 + 선택 설명 |
+| PATCH /v1/users/me/preferences | 4축·설명 수정. 위치 변경 없음, 선호 버전 관리 |
+| GET /v1/atmosphere-axes | 확정 4축·양쪽 값·표시 순서 |
+| GET /v1/place-categories | 자체 카테고리 8종·내부 ID·정의·버전 |
+| POST /v1/memories/analyze | 본문에서 4축·0~3개 카테고리 추론. 미결 축은 작성자 입력 필요 표시 |
+| POST /v1/memories | 핀 좌표·본문·선택 사진·확인한 4축·0~3개 카테고리로 LETTER 또는 PRIVATE 최종 저장 |
+| GET /v1/memories/{id} | 작성자·소유자·실제 수신자 권한 검사 |
+| DELETE /v1/memories/{id} | 원문 또는 본인 PRIVATE 일반 삭제. 독립 사본에는 전파 없음 |
+| GET /v1/memories/{id}/image | 해당 경험의 상태·권한 확인 후 로컬 파일 제공 |
+| GET /v1/places?bbox=... | 권한 있는 기록만 핀·집계 |
+| GET /v1/places/{id}/memories | 권한 있는 위치별 경험 |
+| GET /v1/users/me/memories?type=LETTER | 보낸 LETTER의 상태·누적 좋아요 수 |
+| GET /v1/letters?atmospheres=...&categories=...&cursor=...&limit=... | 실제 수신 이력. 분위기·카테고리 내부 OR, 종류 간 AND |
+| GET /v1/letters/today | 오늘의 저장된 선정 결과·대기·후보 없음 상태 조회 |
+| PATCH /v1/letters/{deliveryId}/read | 수신자 본인의 읽음 기록 |
+| POST /v1/letters/{deliveryId}/like | 한 번의 좋아요·독립 PRIVATE 생성 |
+| GET /v1/bookmarks | 본인 PRIVATE 목록 |
+| POST /v1/reports | 열람 권한이 있는 대상에 대한 신고 |
 
 일일 배달은 매일 09:00, Asia/Seoul 서버 정기 작업이다. GET 조회·필터·새로고침은 선정 트리거가 아니다. 운영·테스트 실행 경로는 일반 사용자에게 열지 않는다. 오늘 상태는 정기 배달 대기·후보 없음·성공·재시도 중·오류 등을 구분해 반환한다. 정시 이후 가입·신규 후보·배달 성공 후 삭제에는 당일 보충하지 않고, 지난 날짜분의 신규 생성도 제공하지 않는다. 재시도는 같은 날의 미완료 오류 작업에만 적용한다.
 

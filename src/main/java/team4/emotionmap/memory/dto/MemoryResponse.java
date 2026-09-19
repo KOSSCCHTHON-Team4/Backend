@@ -1,46 +1,37 @@
 package team4.emotionmap.memory.dto;
 
-import java.time.OffsetDateTime;
-import team4.emotionmap.memory.Emotion;
+import java.time.Instant;
+import java.util.UUID;
+import team4.emotionmap.memory.AtmosphereAnalysisStatus;
+import team4.emotionmap.memory.CategoryAnalysisStatus;
+import team4.emotionmap.memory.ContentStatus;
+import team4.emotionmap.memory.DataOrigin;
+import team4.emotionmap.memory.DistributionType;
 import team4.emotionmap.memory.Memory;
-import team4.emotionmap.memory.MemoryStatus;
-import team4.emotionmap.memory.Visibility;
+import team4.emotionmap.memory.ModerationStatus;
+import team4.emotionmap.memory.OriginKind;
+import team4.emotionmap.memory.ValueSource;
 
-/**
- * 기억 응답 DTO.
- * embedding(float[1024]) 같은 내부 데이터는 응답에 포함하지 않는다.
- * emotionTag 는 Claude 추출 전이면 null 일 수 있다.
- *
- * 이미지: DB 에는 key(imagePath)만 있고, 클라이언트가 바로 쓸 수 있게
- *   imageKey(원본 key)와 imageUrl(바이너리 조회 API 경로)을 함께 내려준다.
- *   이미지가 없으면(선택 항목) 둘 다 null.
- */
+/** No author identity or storage key is exposed to recipients. */
 public record MemoryResponse(
-        Long id,
-        Long userId,
-        Long placeId,
-        String content,
-        String imageKey,
-        String imageUrl,
-        Visibility visibility,
-        Emotion emotionTag,
-        MemoryStatus status,
-        OffsetDateTime createdAt
+        UUID id, UUID placeId, String content, String imageUrl,
+        DistributionType distributionType, OriginKind originKind, DataOrigin dataOrigin,
+        String placeLabelSnapshot, Double placeLat, Double placeLng,
+        Short crowdLevel, Short spatialFeel, Short companyFit, Short stayStyle,
+        ValueSource crowdSource, ValueSource spatialSource, ValueSource companySource, ValueSource staySource,
+        Short axisDefinitionVersion, AtmosphereAnalysisStatus atmosphereAnalysisStatus,
+        CategoryAnalysisStatus categoryAnalysisStatus, ContentStatus contentStatus,
+        ModerationStatus moderationStatus, Instant availableAt, Instant createdAt
 ) {
-    public static MemoryResponse from(Memory m) {
-        String key = m.getImagePath();
-        String url = (key == null || key.isBlank()) ? null : "/api/images/" + key;
-        return new MemoryResponse(
-                m.getId(),
-                m.getUserId(),
-                m.getPlaceId(),
-                m.getContent(),
-                key,
-                url,
-                m.getVisibility(),
-                m.getEmotionTag(),
-                m.getStatus(),
-                m.getCreatedAt()
-        );
+    public static MemoryResponse from(Memory memory) {
+        return new MemoryResponse(memory.getId(), memory.getPlaceId(), memory.getContent(),
+                memory.getImagePath() == null ? null : "/v1/memories/" + memory.getId() + "/image",
+                memory.getDistributionType(), memory.getOriginKind(), memory.getDataOrigin(),
+                memory.getPlaceLabelSnapshot(), memory.getPlaceLat(), memory.getPlaceLng(),
+                memory.getCrowdLevel(), memory.getSpatialFeel(), memory.getCompanyFit(), memory.getStayStyle(),
+                memory.getCrowdSource(), memory.getSpatialSource(), memory.getCompanySource(), memory.getStaySource(),
+                memory.getAxisDefinitionVersion(), memory.getAtmosphereAnalysisStatus(),
+                memory.getCategoryAnalysisStatus(), memory.getContentStatus(), memory.getModerationStatus(),
+                memory.getAvailableAt(), memory.getCreatedAt());
     }
 }

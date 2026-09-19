@@ -10,17 +10,17 @@
 
 | 메서드 | 경로 | 작업 | 구현 범위 |
 |---|---|---|---|
-| POST | `/auth/login` | A01 | 이메일·비밀번호 검증, 초대·계정 상태, access token |
-| GET | `/config` | A03 | 반경·초기 중심·제한·09:00 설정; mock 값을 운영값으로 확정하지 않음 |
-| GET | `/atmosphere-axes` | A03 | 정확한 4축 라벨·값·버전 |
-| GET | `/place-categories` | A03 | 자체 8종 사전·코드·버전 |
-| GET | `/users/me` | A02 | 본인 프로필, hasOnboarded, 현재 취향 버전 |
-| POST | `/users/me/onboarding` | A02 | 고정 위치와 취향 v1 원자적 생성, 동일 재요청 처리 |
-| PATCH | `/users/me/preferences` | A02 | 위치 제외, 버전 충돌 검사, 불변 취향 이력 추가 |
-| POST | `/memories/analyze` | A04 | AI 분류 어댑터·미결 응답·분석 확인값 |
-| POST | `/memories` | A05 | 직접 LETTER/PRIVATE 생성, 이미지 소비, 분류 최종 확정 |
-| POST | `/images` | A06 | 임시 업로드·실파일 검증·소유권·만료 |
-| GET | `/memories/{id}/image` | A06 | BE2 공통 열람 정책을 적용한 Bearer 이미지 반환 |
+| POST | `/v1/auth/login` | A01 | 이메일·비밀번호 검증, 초대·계정 상태, access token |
+| GET | `/v1/config` | A03 | 반경·초기 중심·제한·09:00 설정; mock 값을 운영값으로 확정하지 않음 |
+| GET | `/v1/atmosphere-axes` | A03 | 정확한 4축 라벨·값·버전 |
+| GET | `/v1/place-categories` | A03 | 자체 8종 사전·코드·버전 |
+| GET | `/v1/users/me` | A02 | 본인 프로필, hasOnboarded, 현재 취향 버전 |
+| POST | `/v1/users/me/onboarding` | A02 | 고정 위치와 취향 v1 원자적 생성, 동일 재요청 처리 |
+| PATCH | `/v1/users/me/preferences` | A02 | 위치 제외, 버전 충돌 검사, 불변 취향 이력 추가 |
+| POST | `/v1/memories/analyze` | A04 | AI 분류 어댑터·미결 응답·분석 확인값 |
+| POST | `/v1/memories` | A05 | 직접 LETTER/PRIVATE 생성, 이미지 소비, 분류 최종 확정 |
+| POST | `/v1/images` | A06 | 임시 업로드·실파일 검증·소유권·만료 |
+| GET | `/v1/memories/{id}/image` | A06 | BE2 공통 열람 정책을 적용한 Bearer 이미지 반환 |
 
 ## 담당 작업
 
@@ -59,7 +59,7 @@
 ### A03. 서비스 설정·4축·8종 카테고리 사전
 
 **선행 입력:** C01·C03; 실제 반경/중심/입력·파일 한도는 팀 합의  
-**산출물:** GET /config, /atmosphere-axes, /place-categories, 서버 설정 스키마·seed
+**산출물:** GET /v1/config, /v1/atmosphere-axes, /v1/place-categories, 서버 설정 스키마·seed
 
 - 고정 반경·초기 지도 중심·09:00/Asia/Seoul·인증모드 EMAIL_PASSWORD·제한값을 단일 서버 설정에서 반환한다.
 - 반경 1000m 등 mock 숫자를 승인 없이 운영값으로 확정하지 않는다. 필수 설정 누락은 CONFIGURATION_UNAVAILABLE로 다룬다.
@@ -73,7 +73,7 @@
 ### A04. 경험 본문 분석 API와 AI 분류 연동
 
 **선행 입력:** A03, C09, AI 담당자의 분류 스키마·모델 계약  
-**산출물:** POST /memories/analyze, 분석 DTO/어댑터·analysisToken 검증 기능, 실패 mock
+**산출물:** POST /v1/memories/analyze, 분석 DTO/어댑터·analysisToken 검증 기능, 실패 mock
 
 - 본문으로 분위기 4축과 자체 카테고리 0~3개를 추론하는 AI 모듈을 BE API에 연결한다. 사진/계정 취향으로 빈 축을 추측하지 않는다.
 - AI 근거 없음은 축 null로 반환하고 작성자 입력을 요구한다. 카테고리 근거 부족·AI 실패·서버 자체 장애를 구분한다.
@@ -88,7 +88,7 @@
 ### A05. 직접 경험 생성과 공용 경험 저장 기능
 
 **선행 입력:** A02~A04, A06; C07 Idempotency, C04 핀 가시성 계약  
-**산출물:** POST /memories, Memory/Place/Category 저장소·migration, 독립 PRIVATE 삽입/상태 변경 내부 포트
+**산출물:** POST /v1/memories, Memory/Place/Category 저장소·migration, 독립 PRIVATE 삽입/상태 변경 내부 포트
 
 - 본문·핀 좌표·필수 4축·카테고리 0~3개를 검증하고 memories와 memory_categories를 한 번에 생성한다.
 - 클라이언트의 ownerId/originKind/moderationStatus/dataOrigin/source ID는 받지 않는다. 직접 생성은 서버가 DIRECT로 기록한다.
@@ -105,7 +105,7 @@
 ### A06. 로컬 이미지 업로드·권한 조회·독립 파일 복사
 
 **선행 입력:** C02/C04 권한, C07 Idempotency, 실제 바이트·해상도·만료 계약  
-**산출물:** POST /images, GET /memories/{id}/image, image_uploads migration, LocalImageStore, 정리 절차
+**산출물:** POST /v1/images, GET /v1/memories/{id}/image, image_uploads migration, LocalImageStore, 정리 절차
 
 - JPG/PNG 한 장을 디코딩·형식·바이트·픽셀 검사하고 서버 재인코딩/메타데이터 제거를 적용한다. 미지원 자료는 거절한다.
 - 임시 업로드의 owner·STAGED/ATTACHED/EXPIRED·expires_at·첨부 대상을 관리한다. 경로 대신 imageId를 반환한다.

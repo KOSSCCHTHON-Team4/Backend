@@ -2,60 +2,79 @@ package team4.emotionmap.account;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.OffsetDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * app_user 테이블 매핑 (V1__init.sql).
- * home_lat/home_lng 는 사용자의 홈 위치(감정지도 기준점). nullable.
- */
 @Entity
-@Table(name = "app_user")
+@Table(name = "app_users")
 @Getter
+@Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @Column(nullable = false, unique = true, length = 50)
+    @Column(columnDefinition = "text")
     private String nickname;
 
-    @Column(nullable = false, unique = true, length = 255)
-    private String email;
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "text")
+    private AccessStatus accessStatus = AccessStatus.PENDING;
 
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "text")
+    private AppRole appRole = AppRole.USER;
 
-    private Double homeLat;
+    private Double mailboxLat;
+    private Double mailboxLng;
+    private Instant mailboxEnabledAt;
 
-    private Double homeLng;
-
+    @Builder.Default
     @Column(nullable = false)
-    private OffsetDateTime createdAt;
+    private Instant createdAt = Instant.now();
 
-    @Builder
-    private User(String nickname, String email, String passwordHash,
-                 Double homeLat, Double homeLng) {
-        this.nickname = nickname;
-        this.email = email;
-        this.passwordHash = passwordHash;
-        this.homeLat = homeLat;
-        this.homeLng = homeLng;
-        this.createdAt = OffsetDateTime.now();
+    @Builder.Default
+    @Column(nullable = false)
+    private Instant updatedAt = Instant.now();
+
+    public boolean isActive() {
+        return accessStatus == AccessStatus.ACTIVE;
     }
 
-    /** 홈 위치 수정. */
-    public void updateHomeLocation(Double homeLat, Double homeLng) {
-        this.homeLat = homeLat;
-        this.homeLng = homeLng;
+    public void recordPreferenceChange(Instant changedAt) {
+        if (mailboxEnabledAt == null || changedAt == null) {
+            throw new IllegalStateException("Preference changes require an onboarded account and timestamp");
+        }
+        updatedAt = changedAt;
+    }
+
+    public void completeOnboarding(double lat, double lng, Instant enabledAt) {
+        if (mailboxEnabledAt != null) {
+            throw new IllegalStateException("Mailbox location is immutable after onboarding");
+        }
+        if (!Double.isFinite(lat) || lat < -90 || lat > 90
+                || !Double.isFinite(lng) || lng < -180 || lng > 180 || enabledAt == null) {
+            throw new IllegalArgumentException("Invalid mailbox location or enablement time");
+        }
+        mailboxLat = lat;
+        mailboxLng = lng;
+        mailboxEnabledAt = enabledAt;
+        updatedAt = enabledAt;
     }
 }

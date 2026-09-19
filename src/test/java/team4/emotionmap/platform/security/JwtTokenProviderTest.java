@@ -3,6 +3,7 @@ package team4.emotionmap.platform.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -16,13 +17,14 @@ class JwtTokenProviderTest {
 
     @Test
     void createAndParseRoundTrip() {
-        String token = provider.createToken(42L);
-        assertThat(provider.parseUserId(token)).isEqualTo(42L);
+        UUID userId = UUID.randomUUID();
+        String token = provider.createToken(userId).token();
+        assertThat(provider.parseUserId(token)).isEqualTo(userId);
     }
 
     @Test
     void tamperedTokenIsRejected() {
-        String token = provider.createToken(1L);
+        String token = provider.createToken(UUID.randomUUID()).token();
         // 서명 세그먼트(마지막 . 뒤)를 훼손하면 검증에서 반드시 예외가 나야 한다.
         int lastDot = token.lastIndexOf('.');
         String tampered = token.substring(0, lastDot + 1) + "AAAA";
