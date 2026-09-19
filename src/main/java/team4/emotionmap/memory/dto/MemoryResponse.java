@@ -2,15 +2,15 @@ package team4.emotionmap.memory.dto;
 
 import java.time.Instant;
 import java.util.UUID;
-import team4.emotionmap.memory.AtmosphereAnalysisStatus;
-import team4.emotionmap.memory.CategoryAnalysisStatus;
-import team4.emotionmap.memory.ContentStatus;
-import team4.emotionmap.memory.DataOrigin;
-import team4.emotionmap.memory.DistributionType;
+import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
+import team4.emotionmap.contracts.memory.AxisSource;
+import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DataOrigin;
+import team4.emotionmap.contracts.memory.DistributionType;
+import team4.emotionmap.contracts.memory.ModerationStatus;
+import team4.emotionmap.contracts.memory.OriginKind;
 import team4.emotionmap.memory.Memory;
-import team4.emotionmap.memory.ModerationStatus;
-import team4.emotionmap.memory.OriginKind;
-import team4.emotionmap.memory.ValueSource;
 
 /** No author identity or storage key is exposed to recipients. */
 public record MemoryResponse(
@@ -18,7 +18,7 @@ public record MemoryResponse(
         DistributionType distributionType, OriginKind originKind, DataOrigin dataOrigin,
         String placeLabelSnapshot, Double placeLat, Double placeLng,
         Short crowdLevel, Short spatialFeel, Short companyFit, Short stayStyle,
-        ValueSource crowdSource, ValueSource spatialSource, ValueSource companySource, ValueSource staySource,
+        AxisSource crowdSource, AxisSource spatialSource, AxisSource companySource, AxisSource staySource,
         Short axisDefinitionVersion, AtmosphereAnalysisStatus atmosphereAnalysisStatus,
         CategoryAnalysisStatus categoryAnalysisStatus, ContentStatus contentStatus,
         ModerationStatus moderationStatus, Instant availableAt, Instant createdAt

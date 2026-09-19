@@ -9,7 +9,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DistributionType;
+import team4.emotionmap.contracts.memory.ModerationStatus;
 class MemoryAccessServiceTest {
     private final MemoryRepository memories = mock(MemoryRepository.class);
     private final MemoryReadAccess deliveries = mock(MemoryReadAccess.class);

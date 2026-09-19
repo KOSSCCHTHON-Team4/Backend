@@ -6,6 +6,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DistributionType;
+import team4.emotionmap.contracts.memory.ModerationStatus;
 
 @Service
 @RequiredArgsConstructor

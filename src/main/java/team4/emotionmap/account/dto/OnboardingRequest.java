@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
 
 public record OnboardingRequest(
         @NotNull @DecimalMin("-90") @DecimalMax("90") Double mailboxLat,

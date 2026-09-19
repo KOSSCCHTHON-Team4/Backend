@@ -17,7 +17,7 @@ import team4.emotionmap.account.UserRepository;
 import team4.emotionmap.letter.dto.LetterLikeResponse;
 import team4.emotionmap.letter.dto.LetterResponse;
 import team4.emotionmap.media.ImageStorageService;
-import team4.emotionmap.memory.DistributionType;
+import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.memory.Memory;
 import team4.emotionmap.memory.MemoryAccessService;
 import team4.emotionmap.memory.MemoryCategoryRepository;

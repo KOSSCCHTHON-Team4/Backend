@@ -38,12 +38,12 @@ class ModuleArchitectureTest {
     // package access: adding a dependency still requires reviewing this boundary.
     private static final Map<String, List<String>> PUBLIC_CONTRACTS = Map.of(
             "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard"),
-            "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService", "account.dto.Atmospheres",
+            "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
                     "media.ImageStorageService", "media.ImageUpload", "media.ImageUploadService", "media.StoredImage",
                     "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository"),
             "media", List.of("account.User", "account.UserRepository", "account.AccountAccessService"),
             "letter", List.of("account.AccountAccessService", "account.User", "account.UserRepository",
-                    "media.ImageStorageService", "memory.DistributionType", "memory.Memory",
+                    "media.ImageStorageService", "memory.Memory",
                     "memory.MemoryAccessService", "memory.MemoryCategory", "memory.MemoryCategoryRepository",
                     "memory.MemoryRepository", "memory.MemoryReadAccess"),
             "report", List.of("account.AccountAccessService", "account.User",

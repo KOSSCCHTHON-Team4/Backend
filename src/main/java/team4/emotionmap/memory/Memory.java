@@ -15,6 +15,14 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
+import team4.emotionmap.contracts.memory.AxisSource;
+import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
+import team4.emotionmap.contracts.memory.ContentStatus;
+import team4.emotionmap.contracts.memory.DataOrigin;
+import team4.emotionmap.contracts.memory.DistributionType;
+import team4.emotionmap.contracts.memory.ModerationStatus;
+import team4.emotionmap.contracts.memory.OriginKind;
 
 @Entity
 @Table(name = "memories")
@@ -71,19 +79,19 @@ public class Memory {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "crowd_source", nullable = false, columnDefinition = "text")
-    private ValueSource crowdSource;
+    private AxisSource crowdSource;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "spatial_source", nullable = false, columnDefinition = "text")
-    private ValueSource spatialSource;
+    private AxisSource spatialSource;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "company_source", nullable = false, columnDefinition = "text")
-    private ValueSource companySource;
+    private AxisSource companySource;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "stay_source", nullable = false, columnDefinition = "text")
-    private ValueSource staySource;
+    private AxisSource staySource;
 
     @Builder.Default
     @Column(name = "axis_definition_version", nullable = false)
