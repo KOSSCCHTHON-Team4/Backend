@@ -63,10 +63,12 @@ if [ "$DB_PASSWORD" = "$POSTGRES_PASSWORD" ]; then
     fail "DB_PASSWORD and POSTGRES_PASSWORD must differ"
 fi
 
+# SQL passed with --command bypasses psql variable interpolation; use stdin.
 psql -X -w --quiet --username=postgres --dbname=postgres \
     --set=ON_ERROR_STOP=1 \
-    --set=db_username="$DB_USERNAME" \
-    --command 'CREATE ROLE :"db_username" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;'
+    --set=db_username="$DB_USERNAME" <<'SQL'
+CREATE ROLE :"db_username" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+SQL
 
 # psql encrypts this client-side before sending ALTER ROLE. The secret is
 # supplied only on stdin, never in SQL, an argv value, a file, or shell output.
@@ -79,8 +81,9 @@ printf '%s\n%s\n' "$DB_PASSWORD" "$DB_PASSWORD" | \
 psql -X -w --quiet --username=postgres --dbname=postgres \
     --set=ON_ERROR_STOP=1 \
     --set=db_name="$DB_NAME" \
-    --set=db_username="$DB_USERNAME" \
-    --command 'CREATE DATABASE :"db_name" OWNER :"db_username";'
+    --set=db_username="$DB_USERNAME" <<'SQL'
+CREATE DATABASE :"db_name" OWNER :"db_username";
+SQL
 
 psql -X -w --quiet --username=postgres --dbname="$DB_NAME" \
     --set=ON_ERROR_STOP=1 \
