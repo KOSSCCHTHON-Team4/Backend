@@ -15,7 +15,7 @@ Domain (V1): app_user, place, memory, reaction, letter_delivery, report.
 - **emotion_tag** on memory is auto-derived by Claude (sonnet-5) from `content` — NOT
   accepted in the request. **embedding** is produced by a separate embedding model
   (Voyage etc., TBD) — Claude cannot embed. Both are filled server-side via the
-  `ai/EmotionTagger` and `ai/Embedder` ports (Optional-injected; no impl yet).
+  `memory/ai/EmotionTagger` and `memory/ai/Embedder` ports (Optional-injected; no impl yet).
 - MemoryStatus: ACTIVE / HIDDEN / DELETED. Visibility: LETTER / PRIVATE.
 
 ## Stack
@@ -27,7 +27,7 @@ Domain (V1): app_user, place, memory, reaction, letter_delivery, report.
   puts userId as principal). Passwords are BCrypt-hashed in `app_user.password_hash`.
   `JWT_SECRET` env var in CI/prod (never commit). See `ARCHITECTURE.md` §14.
 - **API docs**: springdoc-openapi 3.1.x (Swagger UI). Auto-generated from controllers/DTOs.
-  `/swagger-ui.html`, `/v3/api-docs`. Metadata in `config/OpenApiConfig`. 3.1.x is the
+  `/swagger-ui.html`, `/v3/api-docs`. Metadata in `platform/openapi/OpenApiConfig`. 3.1.x is the
   Spring Boot 4.x line (2.9.x is for Boot 3.x). See `ARCHITECTURE.md` §13.
 - PostgreSQL 17 + **pgvector**. JPA mapping uses **hibernate-vector** (NOT the JDBC-only
   `com.pgvector:pgvector`). Map with `@JdbcTypeCode(SqlTypes.VECTOR) @Array(length=N) float[]`.
@@ -36,7 +36,8 @@ Domain (V1): app_user, place, memory, reaction, letter_delivery, report.
   Shared settings in `lombok.config` (repo root).
 - Flyway for DB migrations (`src/main/resources/db/migration/`); V1 enables the
   `vector` extension and adds a `vector(1024)` embedding column
-- Package root: `team4.emotionmap` (domain / repository / dto / service / controller / storage / ai / config)
+- Package root: `team4.emotionmap` (account / memory / place / letter / report / media / platform).
+  Entity, Repository, Service, Controller, and DTO belong to their owning feature.
 - Images: optional (content required). Stored on the local filesystem under
   `app.storage.upload-dir` with a **UUID key**; DB (`memory.image_path`) holds only the key.
   Two APIs: `POST /api/images` (multipart → JSON `{key,url}`) and `GET /api/images/{key}`
@@ -75,10 +76,25 @@ brew install postgresql@17 pgvector && brew services start postgresql@17
 
 ## Architecture
 
-Layered: Controller → Service → Repository (Spring Data JPA) → PostgreSQL+pgvector.
-Schema is owned by Flyway; JPA runs `ddl-auto: validate` only. Columns are
-snake_case. The `ci` profile disables DataSource/JPA/Flyway auto-config so the
-context and unit tests run without a database. See `ARCHITECTURE.md`.
+Single Gradle module, organized by business feature. Within each feature:
+Controller → Service → Repository (Spring Data JPA) → PostgreSQL+pgvector.
+`account` owns authentication and profiles; `memory.reaction` is a memory subfeature.
+`memory.ai` owns its AI ports and embedding configuration. `media` owns image storage
+and its configuration. `platform` owns security and OpenAPI support.
+
+Do not access another module's entities, repositories, internal services, or DTOs.
+The only current cross-module contract is `account` → `platform.security.JwtTokenProvider`.
+Define an explicit public contract before introducing another cross-module dependency;
+update `architecture/ModuleArchitectureTest` to allow only that contract. Platform must
+not depend on business modules. ArchUnit checks module placement, access, and cycles
+in `./gradlew test`, without a database.
+
+URL nesting does not determine ownership: `/places/{id}/memories` belongs to
+`memory.PlaceMemoryController`, and reactions to `memory.reaction.ReactionController`.
+Schema is owned centrally by Flyway; JPA runs `ddl-auto: validate` only. Columns are
+snake_case. ID references and existing FK delete policies remain unchanged.
+The `ci` profile disables database auto-configuration for DB-less tests; it is not
+a standalone application boot profile. See `ARCHITECTURE.md` §2-1.
 
 ## Constraints
 
