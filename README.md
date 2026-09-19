@@ -177,6 +177,10 @@ psql -d emotionmap -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `psql`이 PATH에 없다면 설치한 PostgreSQL 17의 `bin` 경로를 사용합니다.
 
+**개발 시드 자동 실행 중단:** 기본 `local` 부팅도 공통 `classpath:db/migration`만 사용합니다. `db/seed/R__seed_dev_data.sql`은 원본 보존용이며 현재 실행 절차가 아닙니다(파일 내부의 local 자동 실행 설명도 과거 기준입니다). 공통 비밀번호·운영자 계정 생성, 기존 데이터 삭제 및 현행 제약과 맞지 않는 값을 포함하므로 직접 실행하거나 Flyway 경로에 다시 추가하지 마세요. 새 환경에는 V3의 고정 카테고리 8개만 초기화되며, 로그인 계정·자격증명은 별도의 안전한 내부 절차로 준비해야 합니다.
+
+이미 이 repeatable의 적용 이력이 있는 DB는 현재 Flyway 기본 검증에서 스크립트 누락으로 부팅이 중단될 수 있습니다. 이 변경은 기존 데이터·적용 이력을 삭제하거나 자동 복구하지 않습니다. 오류를 우회하려고 `repair`/`clean`, 이력 삭제, 검증 비활성화·누락 무시 설정 또는 시드 재실행을 하지 마세요. 기존 DB는 보존하고, 개발 재개에는 별도의 빈 개발 DB만 사용하세요. 이 변경은 DB 생성·초기화·정리 같은 자동 DB 작업을 수행하지 않습니다.
+
 - DB 연결: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 기본 로컬 설정을 변경합니다.
 - 프로필: `SPRING_PROFILES_ACTIVE=local|ci|prod`. `ci`는 DB 없는 테스트용이지 독립적인 앱 부팅용이 아닙니다.
 - JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 경로는 `APP_UPLOAD_DIR`로 설정합니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
