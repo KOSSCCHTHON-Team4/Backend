@@ -70,6 +70,19 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+springBoot {
+    mainClass.set("team4.emotionmap.EmotionMapApplication")
+}
+
+tasks.register<JavaExec>("provisionUser") {
+    group = "application"
+    description = "내부 계정과 비밀번호 자격 증명을 안전하게 생성합니다."
+    classpath = sourceSets["main"].output + configurations["productionRuntimeClasspath"]
+    mainClass.set("team4.emotionmap.account.AccountProvisioningCli")
+    javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
+    standardInput = System.`in`
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }

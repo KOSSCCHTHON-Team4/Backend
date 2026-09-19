@@ -26,10 +26,11 @@ paths:
       summary: 로그인 및 초기 설정 여부
       tags:
       - Auth
-      description: 이메일·비밀번호로만 로그인한다. email과 password 두 필드를 필수로 받으며 그 외 필드는 INVALID_REQUEST로 거절한다. 비밀번호 해시 검증 뒤 초대·계정
-        상태를 확인하고 서버 access token을 발급한다. 로그인 시 새 계정을 자동 생성하지 않는다. 5회 실패·60초 서버 제한은 기존 FE 계약 제안이며 관찰 구간·초기화·저장 방식은
-        합의 대상이다.
-      x-contract-status: AUTH_METHOD_CONFIRMED_OTHER_DETAILS_DRAFT
+      description: 이메일·비밀번호로만 로그인하며 계정을 자동 생성하지 않는다. 정규화 이메일의 PostgreSQL 영속 키에 실패 한도 N, 잠금 초 L, 고정 관찰 구간 W를 적용한다.
+        N번째 실패부터 429이며 잠금 중에는 올바른 비밀번호도 거절하고 기한을 연장하지 않는다. 올바른 비밀번호는 계정 상태 403을 반환하더라도 제한을 초기화한다.
+        실제 잠금·검증 후 DB 시각으로 계산한 남은 초의 올림값이 Retry-After와 retryAfterSeconds에 일치한다. 필수 설정 누락은503 CONFIGURATION_UNAVAILABLE이며 입력·서버 오류를 비밀번호 실패로 집계하지 않는다.
+        N·L은 공개 서비스 설정, W는 별도 필수 운영 설정이다. 예시5회·60초는 운영값이 아니다.
+      x-contract-status: AUTH_IMPLEMENTED_OPERATIONAL_VALUES_PENDING
       x-onboarding-required: false
       responses:
         '200':
@@ -6054,7 +6055,7 @@ components:
       - refreshSupported
       - user
       additionalProperties: false
-      description: 무갱신 토큰은 승인 전 MVP 제안. 실 토큰 TTL은 서버 설정이다. 토큰은 예시에 실제 값으로 포함하지 않는다.
+      description: 현재 access token만 발급하며 refresh를 지원하지 않는다. 실 토큰 TTL은 서버 설정이다. 토큰은 예시에 실제 값으로 포함하지 않는다.
     LoginRequest:
       type: object
       properties:
@@ -6062,17 +6063,19 @@ components:
           type: string
           format: email
           minLength: 1
+          description: 올바르게 형성된 Unicode만 허용하고 앞뒤 strip 및 Locale.ROOT 소문자화 후 검증한다. 잘못된 surrogate는422 VALIDATION_ERROR다. 공급자별 점·플러스 주소 제거는 하지 않는다.
         password:
           type: string
           minLength: 1
           writeOnly: true
+          x-max-utf8-bytes: 72
+          description: 비어 있지 않은 유효 UTF-8 최대72바이트. trim·대소문자·Unicode 정규화 없이 사용한다. 초과나 잘못된 surrogate는422 VALIDATION_ERROR다.
       required:
       - email
       - password
       additionalProperties: false
-      description: '확정: 이메일·비밀번호만 받는다. 두 필드 필수, 그 외 필드 금지. 비밀번호를 trim·소문자화·정규화하지 않고 서버에서 저장된 비밀번호 해시와 검증한다. 인증 방식은
-        확정, 해시 구현·계정 공급·TTL은 별도 계약이다.'
-      x-contract-status: AUTH_METHOD_CONFIRMED
+      description: 이메일·비밀번호만 받는다. 두 필드 필수, 그 외 필드 금지. BCrypt로 검증하며 최초 자격증명은 공개 가입이 아닌 별도 내부 CLI로 공급한다. 기존 해시를 로그인 중 자동 변경하지 않는다.
+      x-contract-status: AUTH_IMPLEMENTED_OPERATIONAL_VALUES_PENDING
     ServiceLimits:
       type: object
       properties:
