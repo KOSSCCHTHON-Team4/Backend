@@ -43,21 +43,21 @@ public class UserPreferenceVersion {
     private Instant effectiveAt = Instant.now();
 
     @Column(nullable = false, updatable = false)
-    private Short crowdLevel;
+    private double crowdLevel;
 
     @Column(nullable = false, updatable = false)
-    private Short spatialFeel;
+    private double spatialFeel;
 
     @Column(nullable = false, updatable = false)
-    private Short companyFit;
+    private double companyFit;
 
     @Column(nullable = false, updatable = false)
-    private Short stayStyle;
+    private double stayStyle;
 
     @Column(columnDefinition = "text", updatable = false)
     private String description;
 
     @Builder.Default
     @Column(nullable = false, updatable = false)
-    private Short axisDefinitionVersion = 1;
+    private short axisDefinitionVersion = 2;
 }

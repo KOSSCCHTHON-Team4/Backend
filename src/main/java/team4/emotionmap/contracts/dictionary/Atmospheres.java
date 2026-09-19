@@ -4,22 +4,22 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * 최종 저장·설정용 4축 값(API_SPEC 9장 {@code Atmospheres}). 네 축 모두 -1/+1 이어야 하며
- * 0·null·소수·문자열은 생성 시점에 거절한다 (JSON 토큰 수준 검사는 platform 의 역직렬화기가 담당).
+ * 최종 저장·설정용 4축 값(API_SPEC 9장 {@code Atmospheres}). 네 축은 각각 유한한 {@code [-1, 1]}
+ * binary64 이며 constructor 에서 signed zero 를 {@code +0.0} 으로 정규화한다.
  *
  * <p>이 타입이 존재한다는 것 자체가 "4축이 완성되었다"는 뜻이다. 미결 축이 있는 AI 분석 결과는
  * {@link AnalyzedAtmospheres} 를 쓴다.
  */
-public record Atmospheres(int crowdLevel, int spatialFeel, int companyFit, int stayStyle) {
+public record Atmospheres(double crowdLevel, double spatialFeel, double companyFit, double stayStyle) {
 
     public Atmospheres {
-        AtmosphereAxis.requireValidValue(crowdLevel);
-        AtmosphereAxis.requireValidValue(spatialFeel);
-        AtmosphereAxis.requireValidValue(companyFit);
-        AtmosphereAxis.requireValidValue(stayStyle);
+        crowdLevel = AtmosphereAxis.requireValidValue(crowdLevel);
+        spatialFeel = AtmosphereAxis.requireValidValue(spatialFeel);
+        companyFit = AtmosphereAxis.requireValidValue(companyFit);
+        stayStyle = AtmosphereAxis.requireValidValue(stayStyle);
     }
 
-    public int get(AtmosphereAxis axis) {
+    public double get(AtmosphereAxis axis) {
         return switch (axis) {
             case CROWD_LEVEL -> crowdLevel;
             case SPATIAL_FEEL -> spatialFeel;
@@ -28,8 +28,8 @@ public record Atmospheres(int crowdLevel, int spatialFeel, int companyFit, int s
         };
     }
 
-    public static Atmospheres fromMap(Map<AtmosphereAxis, Integer> values) {
-        for (AtmosphereAxis axis : AtmosphereAxis.values()) {
+    public static Atmospheres fromMap(Map<AtmosphereAxis, Double> values) {
+        for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
             if (values.get(axis) == null) {
                 throw new IllegalArgumentException("missing axis " + axis);
             }
@@ -41,10 +41,10 @@ public record Atmospheres(int crowdLevel, int spatialFeel, int companyFit, int s
                 values.get(AtmosphereAxis.STAY_STYLE));
     }
 
-    /** 표시 순서(EnumMap 순서)의 축→값. */
-    public Map<AtmosphereAxis, Integer> toMap() {
-        Map<AtmosphereAxis, Integer> map = new EnumMap<>(AtmosphereAxis.class);
-        for (AtmosphereAxis axis : AtmosphereAxis.values()) {
+    /** 표시 순서(EnumMap 순서)의 정규화된 축→값. */
+    public Map<AtmosphereAxis, Double> toMap() {
+        Map<AtmosphereAxis, Double> map = new EnumMap<>(AtmosphereAxis.class);
+        for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
             map.put(axis, get(axis));
         }
         return map;

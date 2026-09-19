@@ -406,9 +406,11 @@ API key를 넣지 않는다. `AI_*_MODEL`과 `AI_*_PROMPT_VERSION`은 backend가
 다음은 아직 runtime proof가 아니며, traffic 개방 전에 실제 AI host와 검증해야 한다.
 
 - host `127.0.0.1:8001` 연결, `X-AI-Token` 필요 여부와 token rotation, 다섯 endpoint의 request/response
-  JSON, 4개 axis(`CROWD_LEVEL`, `SPATIAL_FEEL`, `COMPANY_FIT`, `STAY_STYLE`)의 `-1/+1` 값 및 category
-  JSON mapping이 실제 계약과 맞는지 확인한다. 형식 불량/미지 axis는 backend가 unknown/failed로 다룰 수
-  있으며 AI 품질을 증명하지 않는다.
+  JSON과 네 axis(`CROWD_LEVEL`, `SPATIAL_FEEL`, `COMPANY_FIT`, `STAY_STYLE`)의 유한 binary64 `[-1,1]`
+  값 및 category JSON mapping을 확인한다. 백엔드는 flat 분석 wire의 axisDefinitionVersion=2,
+  taxonomyVersion=1을 기대한다. `0`은 알려진 값이며 `-0`은 `+0`으로 정규화하고 별도 양자화하지 않는다.
+  형식·버전·provenance 불일치는 실패로 처리한다. 제어된 synthetic 응답 검증은 실제 제공자의
+  fractional 출력 품질이나 실제 연동 성공을 증명하지 않는다.
 - 실제 model/prompt provenance, 상류 오류/timeout behavior, retry/recovery, moderation의
   APPROVED/REVIEW_REQUIRED/REJECTED/ERROR 처리, 데이터가 로그에 남지 않는지를 확인한다.
 - `AI_TIMEOUT`은 total deadline이 아니다. 최소 2초 connect와 최소 20초 read timeout, provider latency,

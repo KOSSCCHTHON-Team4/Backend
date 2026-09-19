@@ -39,34 +39,42 @@ class HttpAdaptersTest {
 
     // ---------------------------------------------------------------- analyze
     @Test
-    void analyzeMapsAllAxesAndCategories() {
+    void analyzeMapsV2AxesIncludingKnownZeroAndCategories() {
         RestClient.Builder b = builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
         server.expect(requestTo("http://localhost:8000/ai/analyze")).andExpect(method(HttpMethod.POST))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .jsonPath("$.axisDefinitionVersion").value(2))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .jsonPath("$.taxonomyVersion").value(1))
                 .andRespond(withSuccess("""
-                        {"atmospheres":{"CROWD_LEVEL":-1,"SPATIAL_FEEL":-1,"COMPANY_FIT":-1,"STAY_STYLE":-1},
-                         "categories":["CAFE"],"categoryStatus":"CLASSIFIED","atmosphereStatus":"SUCCEEDED",
-                         "model":"claude-haiku-4-5","promptVersion":"analyze-v1","dictionaryVersion":1,"error":null}
+                        {"atmospheres":{"CROWD_LEVEL":0,"SPATIAL_FEEL":-0.25,"COMPANY_FIT":0.5,"STAY_STYLE":1},
+                         "categories":["CAFE"],"categoryStatus":"SUCCEEDED","atmosphereStatus":"SUCCEEDED",
+                         "model":"claude-haiku-4-5","promptVersion":"analyze-v2",
+                         "axisDefinitionVersion":2,"taxonomyVersion":1}
                         """, MediaType.APPLICATION_JSON));
         HttpAnalysisAdapter adapter = new HttpAnalysisAdapter(b.build(), props);
 
         AnalysisResult r = adapter.analyze(AnalysisRequest.of("조용하고 아늑한 혼자 오래 카페", Duration.ofSeconds(5)));
 
         assertThat(r.atmosphereStatus()).isEqualTo(AtmosphereAnalysisStatus.SUCCEEDED);
+        assertThat(r.atmospheres().knownCount()).isEqualTo(4);
+        assertThat(Double.doubleToLongBits(r.atmospheres().crowdLevel())).isZero();
         assertThat(r.categories()).containsExactly(PlaceCategoryCode.CAFE);
         assertThat(r.provenance().model()).isEqualTo("claude-haiku-4-5");
+        assertThat(r.provenance().axisDefinitionVersion()).isEqualTo(2);
         server.verify();
     }
 
     @Test
-    void analyzePartialWhenSomeAxesNull() {
+    void analyzePartialWhenSomeAxesAreNull() {
         RestClient.Builder b = builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
         server.expect(requestTo("http://localhost:8000/ai/analyze"))
                 .andRespond(withSuccess("""
                         {"atmospheres":{"CROWD_LEVEL":-1,"SPATIAL_FEEL":null,"COMPANY_FIT":-1,"STAY_STYLE":null},
-                         "categories":[],"categoryStatus":"UNCLASSIFIED","atmosphereStatus":"PARTIAL",
-                         "model":"m","promptVersion":"p","dictionaryVersion":1}
+                         "categories":[],"categoryStatus":"INSUFFICIENT","atmosphereStatus":"PARTIAL",
+                         "model":"m","promptVersion":"p","axisDefinitionVersion":2,"taxonomyVersion":1}
                         """, MediaType.APPLICATION_JSON));
         HttpAnalysisAdapter adapter = new HttpAnalysisAdapter(b.build(), props);
 
@@ -75,6 +83,37 @@ class HttpAdaptersTest {
         assertThat(r.atmosphereStatus()).isEqualTo(AtmosphereAnalysisStatus.PARTIAL);
         assertThat(r.categories()).isEmpty();
         assertThat(r.categoryStatus()).isEqualTo(CategoryAnalysisStatus.INSUFFICIENT);
+        server.verify();
+    }
+
+    @Test
+    void analyzeFailsClosedForInvalidNumericWireUnverifiedMetadataAndCategories() {
+        RestClient.Builder b = builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+        server.expect(requestTo("http://localhost:8000/ai/analyze"))
+                .andRespond(withSuccess("""
+                        {"atmospheres":{"CROWD_LEVEL":1.000000000000000000000001,"SPATIAL_FEEL":0,"COMPANY_FIT":0,"STAY_STYLE":0},
+                         "categories":["CAFE"],"model":"m","promptVersion":"p",
+                         "axisDefinitionVersion":2,"taxonomyVersion":1}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://localhost:8000/ai/analyze"))
+                .andRespond(withSuccess("""
+                        {"atmospheres":{"CROWD_LEVEL":0,"SPATIAL_FEEL":0,"COMPANY_FIT":0,"STAY_STYLE":0},
+                         "categories":["CAFE"],"model":"m","promptVersion":"p",
+                         "axisDefinitionVersion":1,"taxonomyVersion":1}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://localhost:8000/ai/analyze"))
+                .andRespond(withSuccess("""
+                        {"atmospheres":{"CROWD_LEVEL":0,"SPATIAL_FEEL":0,"COMPANY_FIT":0,"STAY_STYLE":0},
+                         "categories":["CAFE","CAFE"],"model":"m","promptVersion":"p",
+                         "axisDefinitionVersion":2,"taxonomyVersion":1}
+                        """, MediaType.APPLICATION_JSON));
+        HttpAnalysisAdapter adapter = new HttpAnalysisAdapter(b.build(), props);
+
+        assertThat(adapter.analyze(AnalysisRequest.of("x", Duration.ofSeconds(5))).isUpstreamFailure()).isTrue();
+        assertThat(adapter.analyze(AnalysisRequest.of("x", Duration.ofSeconds(5))).isUpstreamFailure()).isTrue();
+        assertThat(adapter.analyze(AnalysisRequest.of("x", Duration.ofSeconds(5))).isUpstreamFailure()).isTrue();
+        server.verify();
     }
 
     @Test
@@ -165,18 +204,23 @@ class HttpAdaptersTest {
 
     // ---------------------------------------------------------------- 기획 §8 부가 출력 / verify / match-reason
     @Test
-    void analyzeParsesPlanExtrasAndSendsNaverCategory() {
+    void analyzeParsesSnakeCaseExtrasAndSendsV2RequestMetadata() {
         RestClient.Builder b = builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
         server.expect(requestTo("http://localhost:8000/ai/analyze")).andExpect(method(HttpMethod.POST))
-                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath("$.naver_category").value("카페,디저트>카페"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .jsonPath("$.naver_category").value("카페,디저트>카페"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .jsonPath("$.axisDefinitionVersion").value(2))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .jsonPath("$.taxonomyVersion").value(1))
                 .andRespond(withSuccess("""
                         {"atmospheres":{"CROWD_LEVEL":-1,"SPATIAL_FEEL":-1,"COMPANY_FIT":-1,"STAY_STYLE":-1},
-                         "categories":["CAFE"],"categoryStatus":"CLASSIFIED","atmosphereStatus":"SUCCEEDED",
+                         "categories":["CAFE"],"categoryStatus":"SUCCEEDED","atmosphereStatus":"SUCCEEDED",
                          "evidence":{"조용한":"사람이 거의 없어서"},"tags":["창가","독서"],
                          "category_confidence":0.95,"category_source":"naver",
                          "masked_content":"연락처 [전화번호] 조용한 카페","pii_found":true,"safe":true,"unsafe_reason":null,
-                         "model":"m","promptVersion":"p"}
+                         "model":"m","promptVersion":"p","axisDefinitionVersion":2,"taxonomyVersion":1}
                         """, MediaType.APPLICATION_JSON));
         HttpAnalysisAdapter adapter = new HttpAnalysisAdapter(b.build(), props);
 

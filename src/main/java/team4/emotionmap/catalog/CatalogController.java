@@ -20,7 +20,7 @@ import team4.emotionmap.contracts.config.ServiceConfigSource;
 @RequiredArgsConstructor
 public class CatalogController {
 
-    private static final AtmosphereAxesResponse AXES = AtmosphereAxesResponse.v1();
+    private static final AtmosphereAxesResponse AXES = AtmosphereAxesResponse.current();
     private static final PlaceCategoriesResponse CATEGORIES = PlaceCategoriesResponse.v1();
 
     private final ServiceConfigSource serviceConfig;
@@ -32,7 +32,9 @@ public class CatalogController {
         return ServiceConfigResponse.from(serviceConfig.current());
     }
 
-    @Operation(operationId = "getAtmosphereAxes", summary = "확정 분위기 4축 사전 (version=1)")
+    @Operation(operationId = "getAtmosphereAxes", summary = "확정 분위기 4축 사전 (version=2)",
+            description = "각 축은 유한한 [-1, 1] binary64 값 범위를 제공한다. "
+                    + "options는 -1/+1 endpoint 라벨 anchor이며 전체 허용값 목록이 아니다.")
     @GetMapping("/v1/atmosphere-axes")
     public AtmosphereAxesResponse getAtmosphereAxes() {
         return AXES;

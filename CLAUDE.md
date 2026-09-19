@@ -10,8 +10,8 @@ The current code contains the UUID persistence cutover and migrated existing cal
 
 - Business API paths MUST be `/v1/{endpoint}`. Do not retain unversioned or `/api/...` aliases. Swagger/OpenAPI and Actuator are separate infrastructure paths.
 - Entities map `app_users`, `email_password_credentials`, `user_preference_versions`, `places`, `place_categories`, `memories`, `memory_categories`, `daily_selections`, `letter_deliveries`, `reports`, and `image_uploads`.
-- UUID IDs and scalar FK fields; category IDs/axes are smallint. `Instant` maps timestamptz; service dates use `LocalDate` in Asia/Seoul. Composite keys preserve category slots and user/date selections.
-- Four mandatory axes use -1/+1. Direct manual creation records USER sources, NOT_RUN analyses and PENDING moderation. Never invent AI success, safe approval, preferences or delivery history.
+- UUID IDs and scalar FK fields; category IDs are smallint and the four canonical axes are finite `double precision` values in `[-1,1]`. `Instant` maps timestamptz; service dates use `LocalDate` in Asia/Seoul. Composite keys preserve category slots and user/date selections.
+- New axis writes use definition version 2; historical v1 rows retain exact `-1/+1` endpoint values and their version. Normalize `-0` to `+0`; do not quantize to UI slider steps. Direct manual creation records USER sources, NOT_RUN analyses and PENDING moderation. Never invent AI success, safe approval, preferences or delivery history.
 - ContentStatus: ACTIVE/HIDDEN/DELETED; DistributionType: LETTER/PRIVATE; OriginKind: DIRECT/LETTER_COPY. Soft deletion preserves delivery/like history and independent copies. No source-copy FK, log pair, response cache or shared image file.
 - Reaction, emotion-tag and embedding models are removed. Reintroducing vector infrastructure is not a prerequisite for the four-axis design.
 
@@ -40,7 +40,8 @@ Error handling: throw `contracts.error.ContractError` (with an `ErrorCode` from 
 `platform.web.GlobalExceptionHandler` turns it into the `ApiError` body with `Cache-Control`,
 `WWW-Authenticate`, `Retry-After`, and `X-Request-Id`. JSON is strict (Jackson 3): duplicate keys,
 unknown properties, and scalar coercion (`1.0`, `"1"`, `123`→string) are rejected; 4-axis
-`Atmospheres` is validated at the token level by `platform.web.json.AtmospheresJson`.
+`Atmospheres` is token-level validated as finite binary64 `[-1,1]` before conversion by
+`platform.web.json.AtmospheresJson`, which normalizes `-0` to `+0`. UI display/slider precision does not quantize backend values.
 Service limits/radius come only from `app.service.*` (`ServiceConfigSource`); no defaults in code.
 See `docs/plan/BE1_STAGE0_REPORT.md` for the current contract inventory and coordination list.
 

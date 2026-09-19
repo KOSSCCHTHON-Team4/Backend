@@ -22,7 +22,7 @@ import team4.emotionmap.contracts.memory.OriginKind;
 
 /**
  * BE1·BE2·AI 테스트가 공유하는 사전·값 객체 fixture(A03). 모든 값은 합성 데이터이며 실제 사용자·위치가 아니다.
- * JSON 사전 fixture 는 {@code src/test/resources/fixtures/*.v1.json}(API_SPEC 8.3/8.4 예시와 동일).
+ * JSON 사전 fixture 는 {@code src/test/resources/fixtures/*.json}(API_SPEC 8.3/8.4 예시와 동일)다.
  */
 public final class DictionaryFixtures {
 
@@ -32,11 +32,11 @@ public final class DictionaryFixtures {
     /** API_SPEC 8.8 예시: 조용·아늑·함께·(미결). */
     public static final String SAMPLE_CONTENT =
             "작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.";
-    public static final Atmospheres QUIET_COZY_TOGETHER_LONG = new Atmospheres(-1, -1, 1, -1);
-    public static final AnalyzedAtmospheres PARTIAL_STAY_UNKNOWN = new AnalyzedAtmospheres(-1, -1, 1, null);
+    public static final Atmospheres QUIET_COZY_TOGETHER_LONG = new Atmospheres(-1.0, -1.0, 1.0, -1.0);
+    public static final AnalyzedAtmospheres PARTIAL_STAY_UNKNOWN = new AnalyzedAtmospheres(-1.0, -1.0, 1.0, null);
     public static final List<PlaceCategoryCode> CAFE_STUDY = List.of(PlaceCategoryCode.CAFE, PlaceCategoryCode.STUDY_WORK);
     public static final GeoPoint DEMO_CENTER = new GeoPoint(37.6109, 126.9977);
-    public static final AnalysisProvenance MOCK_PROVENANCE = new AnalysisProvenance("mock-analysis", "mock-v1", 1, 1);
+    public static final AnalysisProvenance MOCK_PROVENANCE = new AnalysisProvenance("mock-analysis", "mock-v2", 2, 1);
 
     public static UUID userId(int n) {
         return UUID.fromString(String.format("10000000-0000-4000-8000-%012d", n));
@@ -50,7 +50,7 @@ public final class DictionaryFixtures {
         return UUID.fromString(String.format("20000000-0000-4000-8000-%012d", n));
     }
 
-    /** 승인된 직접 LETTER 원문(사진 없음). */
+    /** 명시적으로 보존하는 역사 v1 LETTER 원문: 사본 회귀는 이 metadata 를 v2 로 승격하지 않는다. */
     public static MemorySnapshot approvedLetter(UUID id, UUID ownerId, Instant createdAt) {
         return new MemorySnapshot(id, ownerId, placeId(1), DistributionType.LETTER, OriginKind.DIRECT,
                 DataOrigin.SYNTHETIC, ContentStatus.ACTIVE, ModerationStatus.APPROVED, createdAt.plusSeconds(60),

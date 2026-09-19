@@ -65,16 +65,16 @@ flowchart LR
 
 - `app_users`: 초대 접근 상태·역할·온보딩 시 고정 위치.
 - `email_password_credentials`: 계정 UUID PK/FK, 이메일·정규화 조회키·비밀번호 해시. 공급자 인증 모델은 사용하지 않는다.
-- `user_preference_versions`: 불변 4축·설명·revision·effective_at. 같은 사용자의 cutoff 이전 최신 버전을 조회한다.
+- `user_preference_versions`: 불변 4축·설명·revision·effective_at. 새 write는 axis v2의 유한 binary64 `[-1,1]`; v1 행은 endpoint 값·버전·identity를 보존하고 같은 수치 PATCH는 새 revision을 만들지 않는다. 같은 사용자의 cutoff 이전 최신 버전을 조회한다.
 - `places`, `place_categories`: 내부 핀과 고정 8종 분류.
-- `memories`: 필수 4축, 장소 스냅샷, 분류 출처·실행 상태, 공개 범위·기원·안전 상태·독립 이미지 경로.
+- `memories`: 필수 연속 4축, 장소 스냅샷, 분류 출처·실행 상태, 공개 범위·기원·안전 상태·독립 이미지 경로. 사본은 원본 축 bits와 axis version을 보존한다.
 - `memory_categories`: `(memory_id, category_id)` PK, 1~3 슬롯과 `(memory_id, slot_no)` UNIQUE.
 - `daily_selections`: `(user_id, service_date)` PK, 사용자와 취향 버전의 복합 FK, cutoff·claim·lease·상태.
 - `letter_deliveries`: `(receiver_id, service_date)`와 `(receiver_id, memory_id)`를 각각 UNIQUE로 유지. 최초 read_at·liked_at만 기록한다.
 - `reports`: 사유 코드·details·처리 상태·담당자·처리 시각.
 - `image_uploads`: 본인 소유 STAGED/ATTACHED 이미지와 EXPIRED 영수증. EXPIRED는 receipt·소유자·메타데이터·완료 요청 FK를 보존하되 `storage_path`는 NULL이다.
 
-UUID ID, smallint 축·분류, `Instant`/timestamptz, `LocalDate`/date, 문자열 enum을 사용한다. FK는 RESTRICT이며 일반 삭제는 소프트 삭제다. `image_storage_binding`은 migration이 만든 dataset UUID를 UNBOUND로 두고, 명시적 초기화 뒤에만 root UUID·실제 DB/schema locator를 기록한다. Reaction·Bookmark·원문-사본 연결 테이블은 없다.
+UUID ID, smallint 카테고리, `double precision` 4축, `Instant`/timestamptz, `LocalDate`/date, 문자열 enum을 사용한다. 축은 유한 `[-1,1]`이고 `-0`은 Java ingress에서 `+0`으로 정규화한다. FK는 RESTRICT이며 일반 삭제는 소프트 삭제다. `image_storage_binding`은 migration이 만든 dataset UUID를 UNBOUND로 두고, 명시적 초기화 뒤에만 root UUID·실제 DB/schema locator를 기록한다. Reaction·Bookmark·원문-사본 연결 테이블은 없다.
 
 ## 5. 프로필 전략
 
@@ -140,6 +140,7 @@ java -Dloader.main=team4.emotionmap.account.AccountProvisioningCli \
 | `V1__init.sql` | 과거 BIGSERIAL·vector 스키마. 이미 적용된 이력이므로 수정하지 않음 |
 | `V2__erd_uuid_schema.sql` | 구형 테이블을 잠근 뒤 비어 있는지 확인하고 최신 UUID 스키마로 전환 |
 | `V3__seed_place_categories.sql` | 자체 카테고리 8종 seed |
+| `V10__continuous_atmosphere_axes.sql` | 8개 취향·경험 축을 `double precision`으로 전환하고 v2 기본값·v1 endpoint 역사 제약을 추가 |
 
 **V2는 구형 데이터가 한 건이라도 있으면 실패한다.** 데이터를 삭제하거나 필수 4축·취향·수신 이력을 임의로 채우지 않는다. 별도 빈 개발 DB를 사용하거나 승인된 데이터 이관 설계를 먼저 마련한다. V2의 실패는 전체 트랜잭션을 롤백하므로 구형 테이블을 일부만 제거하지 않는다.
 
@@ -164,7 +165,7 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 - DTO: Java record. Entity 전체를 그대로 직렬화하지 않는다.
 - 스키마는 Flyway만 생성하며 Hibernate는 검증한다. 텍스트는 `text`, enum은 문자열로 매핑한다.
 - 불변 취향 버전은 `@Immutable`, 읽기·저장 Repository로 제공한다. 버전 번호만 남기고 실제 값을 덮어쓰지 않는다.
-- 글로벌 JSON 설정은 중복 키·알 수 없는 필드·실수의 정수 강제 변환을 거절한다. 4축은 정확히 정수 -1/+1을 검증한다.
+- 글로벌 JSON 설정은 중복 키·알 수 없는 필드·스칼라 강제 변환을 거절한다. 4축은 토큰 수준에서 변환 전 범위를 확인한 유한 binary64 `[-1,1]`이며 `-0`은 `+0`으로 정규화한다. slider step이나 표시 자릿수로 값을 양자화하지 않는다.
 - 현재 직접 경험 생성은 수동 분류만 지원한다. `USER`/`NOT_RUN`을 기록하고 안전 상태는 `PENDING`으로 남긴다. AI가 없는 상태를 승인·분석 성공으로 처리하지 않는다.
 
 ## 12. 이미지 처리 (로컬 저장 · JSON/바이너리 API 분리)

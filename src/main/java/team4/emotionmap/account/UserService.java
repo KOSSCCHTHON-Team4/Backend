@@ -8,7 +8,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.config.ServiceConfigSource;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
+import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.contracts.validation.TextRules;
 import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.account.dto.UserResponse;
@@ -21,6 +24,7 @@ public class UserService {
     private final EmailPasswordCredentialRepository credentialRepository;
     private final UserPreferenceVersionRepository preferenceRepository;
     private final AccountAccessService accountAccessService;
+    private final ServiceConfigSource serviceConfig;
 
     @Transactional(readOnly = true)
     public UserResponse getMe(UUID userId) {
@@ -89,8 +93,10 @@ public class UserService {
         return UserResponse.from(user, email, preference);
     }
 
-    private static String normalizeDescription(String description) {
-        return description == null || description.isBlank() ? null : description.strip();
+    private String normalizeDescription(String description) {
+        return TextRules.normalizeOptionalText(description,
+                serviceConfig.limits().preferenceDescriptionMaxCodePoints(),
+                "preferenceDescription", ErrorCode.VALIDATION_ERROR);
     }
 
     private static boolean samePreference(UserPreferenceVersion version, Atmospheres axes, String description) {
@@ -103,8 +109,8 @@ public class UserService {
                                                        Atmospheres axes, String description) {
         return UserPreferenceVersion.builder()
                 .userId(userId).revision(revision).effectiveAt(effectiveAt)
-                .crowdLevel((short) axes.crowdLevel()).spatialFeel((short) axes.spatialFeel())
-                .companyFit((short) axes.companyFit()).stayStyle((short) axes.stayStyle())
+                .crowdLevel(axes.crowdLevel()).spatialFeel(axes.spatialFeel())
+                .companyFit(axes.companyFit()).stayStyle(axes.stayStyle())
                 .description(description).build();
     }
 }

@@ -1,6 +1,9 @@
 package team4.emotionmap.platform.web.json;
 
+import team4.emotionmap.contracts.dictionary.AtmosphereAxis;
+import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.json.JsonFactory;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.cfg.CoercionAction;
@@ -13,13 +16,18 @@ import tools.jackson.databind.type.LogicalType;
  * <ul>
  *   <li>중복 키 → 파서 예외(400 DUPLICATE_JSON_KEY)</li>
  *   <li>모르는 속성 → 예외(400 INVALID_REQUEST, UNKNOWN_FIELD) = {@code additionalProperties:false}</li>
- *   <li>{@code 1.0} → 정수 필드 거절, {@code "1"} → 숫자/불리언 필드 거절, {@code 123}/{@code true} → 문자열 필드 거절
- *       (스칼라 강제 변환 금지: 타입이 다르면 400 INVALID_REQUEST)</li>
+ *   <li>축 JSON number 는 원문 lexical 범위 검사 뒤 double 로 변환하고, 다른 스칼라는 타입 강제 변환하지 않는다.</li>
  *   <li>primitive 에 null 거절, 본문 뒤 잉여 토큰 거절</li>
  * </ul>
  * 응답의 null 키는 항상 포함한다(기본 Include.ALWAYS 유지).
  */
 public final class StrictJson {
+
+    private static final JsonFactory MAPPER_FACTORY = JsonFactory.builder()
+            .streamReadConstraints(StreamReadConstraints.builder()
+                    .maxNumberLength(AtmosphereAxis.MAX_JSON_NUMBER_LENGTH)
+                    .build())
+            .build();
 
     private StrictJson() {
     }
@@ -39,8 +47,8 @@ public final class StrictJson {
                 .addModule(new ContractsJacksonModule());
     }
 
-    /** Spring 컨텍스트 없이 같은 규칙을 가진 mapper (단위 테스트·어댑터용). */
+    /** Spring 컨텍스트 없이 같은 규칙과 숫자 token 상한을 가진 mapper (단위 테스트·어댑터용). */
     public static JsonMapper mapper() {
-        return apply(JsonMapper.builder()).build();
+        return apply(JsonMapper.builder(MAPPER_FACTORY)).build();
     }
 }

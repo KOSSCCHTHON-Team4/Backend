@@ -10,6 +10,7 @@ public class ContractsJacksonModule extends SimpleModule {
     public ContractsJacksonModule() {
         super("emotionmap-contracts");
         addDeserializer(Atmospheres.class, new AtmospheresJson.Deserializer());
+        addDeserializer(AnalyzedAtmospheres.class, new AtmospheresJson.AnalyzedDeserializer());
         addSerializer(Atmospheres.class, new AtmospheresJson.Serializer());
         addSerializer(AnalyzedAtmospheres.class, new AtmospheresJson.AnalyzedSerializer());
     }

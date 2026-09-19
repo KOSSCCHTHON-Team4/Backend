@@ -1,144 +1,92 @@
-# AI 연동 가이드 (Backend ↔ AI FastAPI)
+# AI 연동 가이드 (Backend ↔ 별도 AI 서비스)
 
-- 대상: 백엔드/AI/프론트 개발자
-- 범위: 별도 AI 서버(FastAPI, Claude)를 백엔드가 HTTP 로 호출하는 연동. `contracts/ai` 포트의 HTTP 구현.
-- 원칙: **두 저장소 코드를 합치지 않는다.** AI 는 `:8000`, 백엔드는 `:8080` 별도 프로세스. 백엔드는 AI 서버만 부르고 Claude 키는 갖지 않는다.
+## 1. 현재 합의 상태
 
----
+백엔드가 기대하는 분석 wire는 **AX-AI-WIRE-v2**이며 상태는 **BACKEND_EXPECTED_NOT_PROVIDER_VERIFIED**다. 백엔드와 AI 서비스는 별도 프로세스이고 예상 내부 대상은 `http://127.0.0.1:8001`이다.
 
-## 0. 아키텍처
+이는 backend decoder·analysis receipt 경계의 계약이지 실제 AI provider endpoint, listener, 인증, model 호출, 소수 축 생성 품질 또는 end-to-end 동작의 검증이 아니다. 모두 **NOT_RUN**이다. Docker 구성·실행, AI provider key·gateway 설정, AI 저장소 설치 지침은 이 백엔드 문서 범위가 아니다.
 
 ```
-Frontend(3000) → Backend(8080)
-                   └─ AnalysisPort / ModerationPort / PreferenceTieBreakPort  (contracts/ai)
-                        └─ provider=mock → Mock*Adapter (고정 규칙, 키 불필요)
-                        └─ provider=http → Http*Adapter ──HTTP──▶ AI FastAPI(8000) ──▶ Claude(국민대 게이트웨이)
+Backend public API (/v1/*)
+  └─ internal analysis adapter
+       └─ HTTP → separate AI service (expected 127.0.0.1:8001)
 ```
 
-- 포트는 이미 정의돼 있고, provider 값으로 구현이 교체된다. `MemoryService` 등 상위 로직은 포트만 의존하므로 바뀌지 않는다.
-- `app.ai.provider=mock`(기본): 실제 모델 호출 없이 고정 규칙. `=http`: 실제 AI 서버 호출.
+AI 서비스는 저장, 접근 제어, moderation/배달 적격성 전이, source-copy 관계, 최종 tie-break 선택을 수행하지 않는다. 백엔드가 이 책임을 보유한다.
 
----
+## 2. 분석 요청·응답 계약
 
-## 1. AI 서버 실행 (담당: AI, 로컬 재현용)
+### 요청: `POST /ai/analyze`
 
-AI 저장소(`KOSSCCHTHON-Team4/AI`)를 백엔드 옆에 clone.
+`application/json`의 필수 field는 `content`, `axisDefinitionVersion`, `taxonomyVersion`이고 `naver_category`만 선택적이다.
 
-```bash
-git clone https://github.com/KOSSCCHTHON-Team4/AI.git 감정지도-AI
-cd 감정지도-AI
-cp .env.example .env         # 아래 키 입력 (파일에만, 커밋 금지)
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --port 8000     # 문서 http://localhost:8000/docs
-curl -s localhost:8000/health         # anthropic_key_set:true 확인
+```json
+{
+  "content": "창가 자리에 앉아 조용히 오래 책을 읽기 좋은 카페였다.",
+  "axisDefinitionVersion": 2,
+  "taxonomyVersion": 1,
+  "naver_category": "카페"
+}
 ```
 
-`.env` 필수 값 (국민대 게이트웨이):
-```
-ANTHROPIC_API_KEY=<발급받은 키>        # 절대 커밋 금지, .gitignore 로 제외됨
-ANTHROPIC_BASE_URL=https://ai.cs.kookmin.ac.kr
-CLAUDE_MODEL=claude-haiku-4-5
-MODERATION_PROVIDER=llm                # 안전검사도 Claude 사용
-AI_SERVICE_TOKEN=                      # 설정 시 백엔드도 같은 값 필요(선택)
-```
+본문 외 사진·계정 취향·작성자·좌표·사용자 식별자·source-copy 관계는 보내지 않는다. client timeout은 HTTP wire field가 아니다.
 
-> 보안: 키는 AI 서버 `.env` 에만 둔다. 백엔드/프론트/커밋 어디에도 넣지 않는다. 채팅·로그·PR 에 노출되면 즉시 재발급(rotate).
+### 응답: flat AX-AI-WIRE-v2
 
----
+성공 또는 부분 결과는 nested `provenance` 없이 flat body로 수신한다. 필수 field는 `atmospheres`, `categories`, `model`, `promptVersion`, `axisDefinitionVersion`, `taxonomyVersion`이다.
 
-## 2. 백엔드를 실제 AI 서버에 붙이기 (담당: 백엔드)
-
-AI 서버가 `:8000` 에 떠 있는 상태에서, 백엔드를 http provider 로 실행한다.
-
-```bash
-cd 감정지도   # 백엔드
-AI_PROVIDER=http AI_BASE_URL=http://localhost:8000 ./gradlew bootRun
-# AI_SERVICE_TOKEN 을 AI 서버에 설정했다면 동일 값도 함께 주입
-```
-
-- `AI_PROVIDER=http` 이면 `Http*Adapter` 3종이 활성화되고 `Mock*Adapter` 는 자동 비활성(`matchIfMissing`).
-- `app.ai.base-url` 이 비어 있으면 부팅 시 명확한 오류로 실패한다(잘못된 설정 조기 발견).
-- 기본(`AI_PROVIDER` 미설정 또는 mock)은 AI 서버 없이도 개발 가능.
-
-관련 설정 키 (`application.yml` / `application-local.yml`):
-```yaml
-app:
-  ai:
-    provider: ${AI_PROVIDER:mock}          # local 기본 mock
-    base-url: ${AI_BASE_URL:http://localhost:8000}
-    service-token: ${AI_SERVICE_TOKEN:}    # AI 서버와 공유 비밀(선택)
-    timeout: ${AI_TIMEOUT:PT8S}
+```json
+{
+  "atmospheres": {
+    "CROWD_LEVEL": -0.25,
+    "SPATIAL_FEEL": null,
+    "COMPANY_FIT": 0,
+    "STAY_STYLE": 0.75
+  },
+  "categories": ["CAFE"],
+  "model": "provider-model-revision",
+  "promptVersion": "classify-v2",
+  "axisDefinitionVersion": 2,
+  "taxonomyVersion": 1,
+  "atmosphereStatus": "PARTIAL",
+  "categoryStatus": "SUCCEEDED"
+}
 ```
 
----
+선택적 primary enrichment는 `atmosphereStatus`, `categoryStatus`, `error`, `evidence`, `tags`, `category_confidence`, `category_source`, `masked_content`, `pii_found`, `safe`, `unsafe_reason`이다. 모두 snake_case만 사용한다. 누락된 선택 field는 absent이며 backend가 값을 추정하지 않는다. 제공된 선택 field가 type·enum·유도 결과와 맞지 않으면 응답 전체가 실패다.
 
-## 3. 포트 ↔ AI 엔드포인트 매핑 (실제 계약)
+`dictionaryVersion`, nested `provenance`, camelCase alias, singular category alias, 문자열·`Number` coercion은 지원하지 않는다. v1/누락 metadata를 local v2 성공으로 승격하거나 이전 nested/int-only wire를 병행 지원하지 않는다.
 
-> 노션 기획안의 `vibe:[-0.9,...]` 실수 벡터가 아니라, **실제 배포된 AI 서버 계약**(4축 -1/+1/null, 카테고리 code)을 기준으로 구현했다.
+## 3. 축·카테고리·상태 해석
 
-| 백엔드 포트 | AI 엔드포인트 | 요청 | 응답 핵심 | 어댑터 |
-|---|---|---|---|---|
-| `AnalysisPort.analyze` | `POST /ai/analyze` | `{content}` | `atmospheres{CROWD_LEVEL/SPATIAL_FEEL/COMPANY_FIT/STAY_STYLE: -1/1/null}`, `categories[code]`, `atmosphereStatus`, `categoryStatus`, `suggestedTitle`, `model` | `HttpAnalysisAdapter` |
-| `ModerationPort.moderate` | `POST /ai/moderate` | `{content, imageDataUrl?}` | `decision(APPROVED/REVIEW_REQUIRED/REJECTED/ERROR)`, `categories[]` | `HttpModerationAdapter` |
-| `PreferenceTieBreakPort.rank` | `POST /ai/tiebreak` | `{preferenceText, candidates[{id,content}]}` | `status`, `topIds[]`, `scores{}` | `HttpTieBreakAdapter` |
+- 축은 canonical 네 key를 모두 정확히 한 번 포함한다. null object, missing/duplicate/unknown key는 전체 응답 실패다.
+- 각 값은 명시적 `null` 또는 유한 JSON number `[-1,1]`이다. integer/fraction/exponent 표기를 허용하며 `0`은 known axis다. `-0`은 `+0`으로 정규화한다.
+- 원래 number lexeme은 최대 1000자이고 binary64 변환 전에 범위를 확인한다. 표준 binary64 underflow로 작은 비영수가 `+0`이 될 수 있지만 추가 반올림·양자화·clamp는 없다.
+- string, boolean, object, array, NaN/infinity, 범위 밖 값, missing axis를 null/PARTIAL로 바꾸지 않는다.
+- known 축 수는 `SUCCEEDED`(4), `PARTIAL`(1~3), `FAILED`(0)를 유도한다. 제공된 status는 유도 상태와 일치하고 `0`을 unknown으로 취급하지 않아야 한다.
+- categories는 0~3개의 distinct known code다. `OTHER`는 배타적이며 unknown drop, dedup repair, truncation은 하지 않는다.
+- `axisDefinitionVersion`은 정확히 2, `taxonomyVersion`은 정확히 1이며 `model`과 `promptVersion`은 수신 body의 nonblank string이다. 틀리거나 누락되면 AI provenance·성공 token 근거가 아니다.
 
-### 매핑 규칙 / 주의점
+명시적 upstream failure는 성공 제안을 폐기한다. malformed/type/range/key/version response 및 network/timeout/`5xx`는 기존 analysis 실패 경로로 변환한다. 원격 결과가 없는 실패를 PARTIAL, null, `NOT_RUN`, fabricated v2 metadata로 바꾸지 않는다.
 
-- **analyze**: 축 값은 `-1`/`+1` 만 인정(그 외·0·null 은 근거 없음 → null, 작성자 입력 필요). 카테고리는 정확히 일치하는 8종 code 만 최대 3개. AI 상류 실패·형식 불량·연결 실패는 예외가 아니라 `AnalysisResult.failed()`(200 + FAILED).
-- **moderate**: 이미지가 있으면 재인코딩 바이트를 `data:<mime>;base64,...` 로 전송(외부 URL 금지). `decision` 을 그대로 verdict 로 매핑. 상류 실패는 `ERROR`(배달 승인 아님). `categories`(짧은 코드)만 reasonCodes 로, 본문 문장은 넣지 않는다.
-- **tiebreak (중요)**: AI 는 LLM 이 후보 id 를 그대로 복제해 점수에 실어 돌려줘야 한다. **UUID 는 LLM 이 정확히 복제하지 못해** AI 가 `FAILED("유효한 점수 없음")` 를 반환한다. 그래서 어댑터가 후보에 짧은 별칭(`c0,c1,...`)을 부여해 보내고, 응답 `topIds`(별칭)를 UUID 로 역매핑한다. 결과 `rankGroups=[공동1위, 나머지]` 분할이며, 소비자(BE2)는 `validateFor(request)` 로 검증 후 1위 그룹에서 무작위로 고른다. SKIPPED/FAILED·무효·연결 실패는 모두 `TieBreakResult.failed()`.
-- **장애 구분**: AI 상류 실패는 결과 객체(failed/ERROR), 우리 쪽 어댑터 설정 오류만 `AiAdapterException`(503).
+## 4. receipt 및 백엔드 책임
 
----
+검증된 v2 분석 결과만 payload version 3 receipt의 AI 근거가 된다. v3 축 claim은 고정 canonical 순서의 `axes-v2:<field>,<field>,<field>,<field>`다. `null`은 `?`, 알려진 값은 `Double.doubleToLongBits` 기반의 정규화된 16자리 lowercase hex다. old/unknown payload 또는 옛 `+/-/?` claim은 자동 변환하지 않고 거절하며 재분석이 필요하다.
 
-## 4. 연동 검증
+AI `null`은 미결이고 0은 known이다. source 판단은 canonical exact bits를 사용한다. token이 없는 수동 흐름은 계속 ALL_USER/`NOT_RUN`이며 AI provider 결과가 아니다.
 
-### 4-1. AI 서버 단독 (curl)
-```bash
-curl -s -X POST localhost:8000/ai/analyze -H 'Content-Type: application/json' \
-  -d '{"content":"창가 자리에 앉아 혼자 조용히 오래 책을 읽기 좋은 아늑한 카페였어요."}'
-# → atmospheres 4축 -1, categories ["CAFE"], atmosphereStatus SUCCEEDED
-```
+이 receipt 설명은 backend-expected contract다. 실제 token 발급, adapter/runtime, provider fractional response, 저장·읽기·copy 또는 full MVP가 검증되었다는 주장이 아니다.
 
-### 4-2. 어댑터 단위 테스트 (DB·AI 서버 불필요, CI 안전)
-```bash
-./gradlew test --tests "team4.emotionmap.memory.ai.HttpAdaptersTest"
-```
-MockRestServiceServer 로 AI 응답을 흉내 내어 변환·실패 계약을 검증한다(analyze 전축/부분/서버오류, moderate 판정/오류, tiebreak 별칭매핑/비성공).
+## 5. 다른 AI endpoint의 선택적 경계
 
-### 4-3. 실제 Claude end-to-end (검증 완료)
-AI 서버 실행 + `AI_PROVIDER=http` 로 어댑터를 붙이면 실제 응답이 온다. 확인된 결과:
-- ANALYZE: SUCCEEDED, 4축 [-1,-1,-1,-1], CAFE
-- MODERATE: APPROVED
-- TIEBREAK: Valid, 조용한 카페 후보 선택
+`POST /ai/moderate`, `POST /ai/tiebreak`, `GET /ai/axes`, `GET /ai/categories`는 선택적 제안이고 provider 검증은 **NOT_RUN**이다. `POST /ai/preference-suggest`, `POST /ai/arrival-reason`, `POST /ai/precheck`은 미래 예약·미사용이다.
 
----
+- moderation은 LETTER 저장 후 배달 적격화 전에만 호출하며 PRIVATE에는 호출하지 않는다. 본문과 선택적 0~1개 살균 JPEG/PNG binary만 보내며 실패는 승인으로 취급하지 않는다.
+- tie-break는 원래 최고점 후보 전체와 자연어 취향에 한정한다. 유효한 complete ordered rank-group partition만 소비하고 무효·실패·예산 초과에는 원래 최고점 전체로 fallback한다. 최종 무작위 선택은 백엔드가 한다.
+- 실제 endpoint shape, moderation 판정, tie-break 품질, 인증·secret, rate/size/timeout 예산은 이 문서가 발명하거나 검증하지 않는다.
 
-## 5. 상위 기능 연결 상태 (2026-09-20)
+## 6. 보안과 미해결 운영 게이트
 
-어댑터 위의 기능은 `docs/AI_PIPELINE_IMPLEMENTATION.md` 대로 구현됐다.
+업무 사용자 JWT를 AI 서비스에 재사용하지 않는다. 본문·취향·사진·원 요청/응답·자격증명·source-copy ID 쌍을 로그에 남기지 않는다. 대상은 `127.0.0.1:8001`로 제한하고 redirect를 허용하지 않는다.
 
-- `POST /v1/memories/analyze` + analysisToken 발급/검증(A04) — **구현**. `MemoryAnalysisService`, `AnalysisReceiptCodec`(v2 클레임).
-- `POST /v1/memories` 의 analysisToken 소비·AI/USER 출처 판정·evidence/tags/안전/마스킹 저장 — **구현**.
-- 배달 전 안전 검사·`available_at` 활성화(A07) — **구현**. `LetterModerationService`(생성 직후 + 5분 주기 DB 기반 재시도).
-- 장소 분위기 벡터·카테고리 다수결(기획 §5·§6) — **구현**. `PlaceProfileService`.
-- 카드 취향 설정·코사인 1차/AI 2차 매칭·알림(기획 §4·§7·§9) — **구현**. `notification` 모듈. 새 포트 `PreferenceVerifyPort`(`/ai/verify`), `MatchReasonPort`(`/ai/match-reason`) + HTTP/mock 어댑터.
-- 일일 선정 스케줄러·4축 점수·동률 tiebreak 호출(B01/B02) — 미구현(BE2 범위, 이 파이프라인과 별개).
-
-> 기획의 실수 벡터(`vibe:[-0.9,...]`)는 채택하지 않았다. 경험은 ±1, 장소 평균은 `평균 × n/(n+2)` 실수다. 상세 차이는 `AI_PIPELINE_IMPLEMENTATION.md` §2.
-
-## 6. 개발 프롬프트 (다음 작업자용 요약)
-
-```
-컨텍스트: 감정지도 백엔드(Spring Boot 4, Java 21)와 AI 서버(FastAPI, Claude)를 HTTP 로 연동함.
-포트(contracts/ai): AnalysisPort/ModerationPort/PreferenceTieBreakPort. provider=http 이면
-memory/ai 의 Http*Adapter 가 :8000 AI 서버를 호출(RestClient, SimpleClientHttpRequestFactory 명시 필수).
-tiebreak 은 후보 id 를 c0,c1.. 별칭으로 보내고 topIds 를 UUID 로 역매핑함(LLM UUID 복제 한계 회피).
-Claude 키는 AI 서버 .env 에만. 백엔드엔 base-url/service-token 만.
-
-다음 작업: (1) POST /v1/memories/analyze 컨트롤러+서비스로 AnalysisPort 연결, analysisToken 서명/검증.
-(2) A07 moderation 저장·available_at 전이. (3) B01/B02 매칭·스케줄러에서 PreferenceTieBreakPort 사용.
-계약: 축 -1/+1만 유효(그외 null), 상류 실패는 결과객체(failed/ERROR)로 예외 아님, tiebreak 결과는
-validateFor(request) 통과해야 사용, 최종 선택/무작위는 BE 책임. 실제 AI 계약 기준(노션의 실수벡터 아님).
-```
+loopback은 인증 증명이 아니다. service-to-service 인증, secret 공급·회전, 실제 provider 실행, endpoint 수용, model/prompt revision, fractional quality, HTTP/JSON/이미지/후보/token 한도 및 timeout은 모두 미해결 운영 게이트다. 따라서 이 문서는 runtime provider 또는 전체 MVP 완료를 주장하지 않는다.

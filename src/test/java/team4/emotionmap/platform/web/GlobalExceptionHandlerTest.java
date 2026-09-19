@@ -155,10 +155,18 @@ class GlobalExceptionHandlerTest {
     void mainOnboardingAtmosphereFailureSurvivesJacksonWrapping() throws Exception {
         mvc.perform(post("/probe/onboarding").contentType(MediaType.APPLICATION_JSON).content("""
                         {"mailboxLat":37.5,"mailboxLng":127.0,"preferenceDescription":"",
-                         "atmospheres":{"CROWD_LEVEL":1.0,"SPATIAL_FEEL":1,"COMPANY_FIT":1,"STAY_STYLE":-1}}
+                         "atmospheres":{"CROWD_LEVEL":1.00000000000000000001,"SPATIAL_FEEL":1,"COMPANY_FIT":1,"STAY_STYLE":-1}}
                         """))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_ATMOSPHERES"));
+    }
+
+    @Test
+    void continuousAtmospheresIncludingZeroReachController() throws Exception {
+        mvc.perform(post("/probe/atmospheres").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"atmospheres":{"CROWD_LEVEL":-0,"SPATIAL_FEEL":0.125,"COMPANY_FIT":10e-1,"STAY_STYLE":-1.0}}
+                        """))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -208,9 +216,9 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void atmospheresTokenLevelRejectionIs422_A07() throws Exception {
+    void atmospheresLexicalRangeRejectionIs422_A07() throws Exception {
         mvc.perform(post("/probe/atmospheres").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"atmospheres\":{\"CROWD_LEVEL\":1.0,\"SPATIAL_FEEL\":1,\"COMPANY_FIT\":1}}"))
+                        .content("{\"atmospheres\":{\"CROWD_LEVEL\":1.00000000000000000001,\"SPATIAL_FEEL\":1,\"COMPANY_FIT\":1}}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_ATMOSPHERES"))
                 .andExpect(jsonPath("$.fieldErrors[?(@.field=='atmospheres.CROWD_LEVEL')].reason").value("INVALID_VALUE"))

@@ -8,6 +8,8 @@ import team4.emotionmap.contracts.ai.AnalysisEnrichment;
 import team4.emotionmap.contracts.ai.AnalysisProvenance;
 import team4.emotionmap.contracts.ai.AnalysisResult;
 import team4.emotionmap.contracts.dictionary.AnalyzedAtmospheres;
+import team4.emotionmap.contracts.dictionary.AtmosphereAxis;
+import team4.emotionmap.contracts.dictionary.CategorySelection;
 import team4.emotionmap.contracts.dictionary.PlaceCategoryCode;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
 import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
@@ -41,8 +43,39 @@ public record AnalysisReceipt(
         Objects.requireNonNull(categoryStatus);
         Objects.requireNonNull(provenance);
         Objects.requireNonNull(expiresAt);
-        categories = List.copyOf(Objects.requireNonNull(categories));
+        categories = CategorySelection.requireValid(Objects.requireNonNull(categories));
         enrichment = enrichment == null ? AnalysisEnrichment.NONE : enrichment;
+        requireCurrentProvenance(provenance);
+        requireConsistentAnalysisState(atmospheres, categories, atmosphereStatus, categoryStatus);
+    }
+
+    private static void requireCurrentProvenance(AnalysisProvenance provenance) {
+        if (provenance.axisDefinitionVersion() != AtmosphereAxis.DEFINITION_VERSION
+                || provenance.taxonomyVersion() != PlaceCategoryCode.TAXONOMY_VERSION) {
+            throw new IllegalArgumentException("analysis receipt requires current axis and taxonomy versions");
+        }
+    }
+
+    private static void requireConsistentAnalysisState(AnalyzedAtmospheres atmospheres,
+                                                       List<PlaceCategoryCode> categories,
+                                                       AtmosphereAnalysisStatus atmosphereStatus,
+                                                       CategoryAnalysisStatus categoryStatus) {
+        if (atmosphereStatus != AnalysisResult.statusFor(atmospheres)) {
+            throw new IllegalArgumentException("atmosphere status does not match known axis count");
+        }
+        switch (categoryStatus) {
+            case SUCCEEDED -> {
+                if (categories.isEmpty()) {
+                    throw new IllegalArgumentException("successful category analysis requires categories");
+                }
+            }
+            case INSUFFICIENT, FAILED -> {
+                if (!categories.isEmpty()) {
+                    throw new IllegalArgumentException("empty categories required for non-successful analysis");
+                }
+            }
+            case NOT_RUN -> throw new IllegalArgumentException("analysis receipt cannot represent NOT_RUN");
+        }
     }
 
     public static AnalysisReceipt from(UUID userId, String content, AnalysisResult result, Instant expiresAt) {

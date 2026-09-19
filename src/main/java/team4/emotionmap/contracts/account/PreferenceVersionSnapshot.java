@@ -14,7 +14,7 @@ import team4.emotionmap.contracts.dictionary.Atmospheres;
  * @param effectiveAt            서버가 정한 적용 시각
  * @param atmospheres            4축 전체 값
  * @param description            선택 자연어 취향(공백은 null 로 정규화됨)
- * @param axisDefinitionVersion  4축 사전 버전(현재 1)
+ * @param axisDefinitionVersion  이 행에 기록된 4축 사전 버전(현재 2, 역사 행은 1일 수 있음)
  */
 public record PreferenceVersionSnapshot(
         UUID versionId,

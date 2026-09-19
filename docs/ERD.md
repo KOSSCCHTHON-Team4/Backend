@@ -5,7 +5,7 @@
 - 목적: 기획서 11장의 논리 모델을 FE·BE·AI 공통 계약에 사용할 관계·키·컬럼·제약·트랜잭션으로 구체화
 - 범위: PostgreSQL 기반, 5인·19시간 핵심 MVP. PUBLIC·댓글은 후순위이며 현재 DDL에는 구현하지 않음
 - 상태: **제품 정책 유지 / 이 문서의 물리 모델과 내부 명칭은 구현 제안**
-- 검증 범위: 초기 설계 단계의 원문·문서·DDL 정적 점검과 점수·슬롯 산술 점검, 이후 전용 PostgreSQL에서의 V1~V7 적용·Hibernate·제약 회귀·두 연결 SQL 조정 실험을 구분해 기록한다. V9 이미지 수명 경계가 전체 애플리케이션·파일·API·배달 작업의 통합 완료를 뜻하지는 않는다(§10).
+- 검증 범위: 초기 설계 단계의 원문·문서·DDL 정적 점검과 점수·슬롯 산술 점검, 이후 전용 PostgreSQL에서의 마이그레이션·Hibernate·제약 회귀·두 연결 SQL 조정 실험을 구분해 기록한다. V9 이미지 수명 경계와 V10 연속축 스키마가 전체 애플리케이션·파일·API·배달 작업의 통합 완료를 뜻하지는 않는다(§10).
 
 > 이 설계는 운영 DB를 변경하지 않는다. 초기 설계용 `docs/sql/`은 PostgreSQL 16+ 문법의 참고 초안이다. 실제 PostgreSQL 17 적용 파일은 `src/main/resources/db/migration/`이며 초기 초안을 기존 Flyway 이력 위에 중복 실행하지 않는다. 구현·검증 범위는 §10에서 구분한다.
 
@@ -47,7 +47,7 @@
 
 ### 1.2 기획서의 논리 모델을 그대로 테이블 하나씩으로 옮기지 않은 이유
 
-**고정 4축은 컬럼으로 둔다.** `UserAtmosphere`, `MemoryAtmosphere`의 축별 행 대신 `crowd_level`, `spatial_feel`, `company_fit`, `stay_style` 네 컬럼을 사용한다. 현재는 축이 정확히 네 개이고 모두 필수이며 값도 -1/+1이므로 행 누락·5번째 축·중복 축을 걱정하는 관계형 EAV보다 행 단위 NOT NULL·CHECK로 검사하기 쉽다. 축을 운영 중 추가하는 기능은 없다. 확장 시에는 마이그레이션한다. 네 개의 축 설명은 코드/설정 상수로 제공하며 별도의 동적 `atmosphere_axes` 테이블은 만들지 않는다.
+**고정 4축은 컬럼으로 둔다.** `UserAtmosphere`, `MemoryAtmosphere`의 축별 행 대신 `crowd_level`, `spatial_feel`, `company_fit`, `stay_style` 네 컬럼을 사용한다. 현재는 축이 정확히 네 개이고 모두 필수이므로 행 누락·5번째 축·중복 축을 걱정하는 관계형 EAV보다 행 단위 NOT NULL·CHECK로 검사하기 쉽다. V10부터 새 행은 유한 binary64 `[-1,1]`의 `double precision`과 `axis_definition_version=2`를 사용한다. 역사 v1 행은 값·행 ID·revision·시각을 재작성하지 않고 정확한 endpoint `-1/+1`을 유지한다. 축을 운영 중 추가하는 기능은 없다. 확장 시에는 마이그레이션한다. 네 개의 축 설명은 코드/설정 상수로 제공하며 별도의 동적 `atmosphere_axes` 테이블은 만들지 않는다.
 
 **현재 취향만 덮어쓰지 않는다.** 오전 9시 기준 설정을 오후의 장애 복구에서도 읽어야 하므로 실제 값을 가진 `user_preference_versions`를 추가한다. `revision=3` 숫자만 남기고 3번의 값을 덮어쓰면 시점 재현이 불가능하다. 기획서 6.5.2의 불변 이력 요구를 구체화한 것이다.
 
@@ -100,10 +100,10 @@ erDiagram
         uuid user_id FK
         bigint revision "user and revision UNIQUE"
         timestamptz effective_at
-        smallint crowd_level "-1 or +1 required"
-        smallint spatial_feel "-1 or +1 required"
-        smallint company_fit "-1 or +1 required"
-        smallint stay_style "-1 or +1 required"
+        double crowd_level "finite [-1,1]; v1 endpoints only"
+        double spatial_feel "finite [-1,1]; v1 endpoints only"
+        double company_fit "finite [-1,1]; v1 endpoints only"
+        double stay_style "finite [-1,1]; v1 endpoints only"
         text description "nullable"
     }
     places {
@@ -121,10 +121,10 @@ erDiagram
         text content
         double place_lat "snapshot"
         double place_lng "snapshot"
-        smallint crowd_level
-        smallint spatial_feel
-        smallint company_fit
-        smallint stay_style
+        double crowd_level "finite [-1,1]; v1 endpoints only"
+        double spatial_feel "finite [-1,1]; v1 endpoints only"
+        double company_fit "finite [-1,1]; v1 endpoints only"
+        double stay_style "finite [-1,1]; v1 endpoints only"
         text image_path UK "nullable independent path"
         text content_status
         text moderation_status
@@ -222,7 +222,7 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | 3. `company_fit` | 혼자 가기 좋은 | 함께 가기 좋은 |
 | 4. `stay_style` | 오래 머물기 좋은 | 잠깐 들르기 좋은 |
 
--1/+1은 평가의 좋고 나쁨이 아니다. `0`, NULL, 세 번째 값은 최종 저장에 허용하지 않는다. AI 분석 응답은 미결을 표현할 수 있지만 작성자가 최종 네 값을 보완한다.
+`-1/+1`은 평가의 좋고 나쁨이 아니라 endpoint 라벨 anchor다. v2 최종 저장은 0과 중간값을 포함한 유한 binary64 `[-1,1]`을 허용하고 `-0`은 `+0`으로 정규화한다. null은 최종 저장에 허용하지 않지만 AI 분석 응답의 명시적 null은 미결을 표현할 수 있으며 작성자가 최종 네 값을 보완한다. slider의 표시·수동 0.1 step은 backend 양자화 규칙이 아니다.
 
 ### 3.3 확정 자체 카테고리
 
@@ -285,12 +285,12 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `user_id` | `uuid` | 불가 | FK | 대상/소유 계정 |
 | `revision` | `bigint` | 불가 | — | 사용자별 증가하는 버전. 기존 버전 UPDATE 대신 INSERT |
 | `effective_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 서버가 정하는 버전 적용 시각 |
-| `crowd_level` | `smallint` | 불가 | -1/+1 | 조용한 -1 / 북적이는 +1 |
-| `spatial_feel` | `smallint` | 불가 | -1/+1 | 아늑한 -1 / 탁 트인 +1 |
-| `company_fit` | `smallint` | 불가 | -1/+1 | 혼자 가기 좋은 -1 / 함께 가기 좋은 +1 |
-| `stay_style` | `smallint` | 불가 | -1/+1 | 오래 머물기 좋은 -1 / 잠깐 들르기 좋은 +1 |
+| `crowd_level` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 조용한 -1 / 북적이는 +1 endpoint label |
+| `spatial_feel` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 아늑한 -1 / 탁 트인 +1 endpoint label |
+| `company_fit` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 혼자 가기 좋은 -1 / 함께 가기 좋은 +1 endpoint label |
+| `stay_style` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 오래 머물기 좋은 -1 / 잠깐 들르기 좋은 endpoint label |
 | `description` | `text` | 가능 | — | 선택 자연어 취향. 공백은 NULL로 정규화 |
-| `axis_definition_version` | `smallint` | 불가 | 기본 1 | 4축 의미의 버전. 현재 1 |
+| `axis_definition_version` | `smallint` | 불가 | 기본 2; 1 또는 2 | 새 write는 2. v1 수치 no-op은 행과 버전을 보존 |
 
 
 ### 4.4 `places`
@@ -336,15 +336,15 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `place_label_snapshot` | `text` | 가능 | — | 경험 생성/복사 당시 장소 표시명 |
 | `place_lat` | `double precision` | 불가 | — | 경험의 위도 스냅샷. 거리·지도 표시의 기준 |
 | `place_lng` | `double precision` | 불가 | — | 경험의 경도 스냅샷 |
-| `crowd_level` | `smallint` | 불가 | -1/+1 | 조용한 -1 / 북적이는 +1 |
-| `spatial_feel` | `smallint` | 불가 | -1/+1 | 아늑한 -1 / 탁 트인 +1 |
-| `company_fit` | `smallint` | 불가 | -1/+1 | 혼자 가기 좋은 -1 / 함께 가기 좋은 +1 |
-| `stay_style` | `smallint` | 불가 | -1/+1 | 오래 머물기 좋은 -1 / 잠깐 들르기 좋은 +1 |
+| `crowd_level` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 조용한 -1 / 북적이는 +1 endpoint label |
+| `spatial_feel` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 아늑한 -1 / 탁 트인 +1 endpoint label |
+| `company_fit` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 혼자 가기 좋은 -1 / 함께 가기 좋은 +1 endpoint label |
+| `stay_style` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 오래 머물기 좋은 -1 / 잠깐 들르기 좋은 endpoint label |
 | `crowd_source` | `text` | 불가 | — | 이 축의 최종값 출처 AI / USER. 복사 시 원래 분류 출처 유지 |
 | `spatial_source` | `text` | 불가 | — | 이 축의 최종값 출처 AI / USER |
 | `company_source` | `text` | 불가 | — | 이 축의 최종값 출처 AI / USER |
 | `stay_source` | `text` | 불가 | — | 이 축의 최종값 출처 AI / USER |
-| `axis_definition_version` | `smallint` | 불가 | 기본 1 | 4축 의미의 버전. 현재 1 |
+| `axis_definition_version` | `smallint` | 불가 | 기본 2; 1 또는 2 | 새 DIRECT write는 2, 사본은 원본 버전·bits 보존 |
 | `atmosphere_analysis_status` | `text` | 불가 | — | AI 분석 성공/일부/실패/미호출. 최종 4축 완성과 별개 |
 | `category_analysis_status` | `text` | 불가 | — | AI 분류 실행 결과. 최종 카테고리 행 개수와 별개 |
 | `analysis_model` | `text` | 가능 | — | 사용한 분류 모델. 수동·미호출이면 없을 수 있음 |
@@ -503,7 +503,7 @@ REFERENCES user_preference_versions(id, user_id)
 
 | 규칙 | DB 선언적 제약 | 추가 책임 |
 |---|---|---|
-| 4축 필수·-1/+1 | NOT NULL, CHECK | 입력 JSON의 소수·중복키를 DB 캐스팅 전에 거절 |
+| 4축 필수·유한 binary64 -1..1 | NOT NULL, `double precision` CHECK; v1은 정확한 -1/+1 교차 CHECK | JSON/provider ingress에서 변환 전 범위·중복키를 검사하고 -0을 +0으로 정규화 |
 | 카테고리 0~3·중복 없음 | 슬롯 CHECK·UNIQUE·PK | AI 근거/장소 맥락 확인 |
 | 하루 한 번·원문 재수신 없음 | 두 UNIQUE | 성공 기록 삭제·임의 재생성 금지 |
 | 사본은 PRIVATE | CHECK | 사본 생성은 실제 수신·권한·미실행 확인 후에만 |
@@ -516,7 +516,7 @@ REFERENCES user_preference_versions(id, user_id)
 | 계정 완료 시 첫 취향 버전 존재 | 자식 FK만으로 최소 한 개 강제 안 함 | 온보딩 한 트랜잭션 |
 | 취향 버전 불변 | 참조 FK만으로 값 변경 차단 안 함 | INSERT 전용 권한/경로, 정리 정책 별도 |
 
-NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는다. 특히 PostgreSQL에 소수를 smallint로 강제 형변환해 보내기 전에 요청이 정확한 정수 -1/+1인지 확인해야 한다.
+NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는다. DB CHECK는 저장된 binary64가 유한 `[-1,1]`인지와 v1 endpoint만 검사하며, 원래 JSON 소수 문법·중복 키·변환 전 범위는 복구할 수 없다. 그 책임은 JSON/provider ingress에 있다.
 
 ## 6. 시간·버전·상태
 
@@ -552,9 +552,9 @@ DDL의 날짜 CHECK는 *저장된 시각*의 내부 일관성을 확인한다. �
 
 ### 6.3 사전과 분석 버전
 
-분위기 라벨·순서는 v1 고정 상수로 제공하고 저장에는 `axis_definition_version=1`을 남긴다. 카테고리는 V2 seed로 고정하고 운영 중 임의 label·code 수정을 막는다. 향후 사전 변경 시 구버전 의미를 보존하는 별도 마이그레이션을 해야 한다. 이 DDL은 v1만 허용하며 동적 taxonomy 플랫폼을 구현하지 않는다.
+분위기 라벨·순서는 v2에서 네 축의 endpoint anchor로 계속 제공한다. V10은 새 write의 `axis_definition_version=2`를 기본으로 하고, 역사 v1 행의 `-1/+1` 값·버전·행 identity를 그대로 보존한다. v1 현재 취향에 수치상 같은 PATCH는 버전 승격을 위해 행을 만들지 않으며, 사본은 원본의 축 버전과 binary64 bits를 보존한다. 카테고리는 V2 seed로 고정하고 운영 중 임의 label·code 수정을 막는다. 향후 사전 변경 시 구버전 의미를 보존하는 별도 마이그레이션을 해야 한다. 동적 taxonomy 플랫폼을 구현하지 않는다.
 
-분류 모델명·프롬프트 버전은 분석 재현을 돕는 메타데이터다. 사용자가 확인한 최종 값과 AI 실행 결과는 분리한다. 사본에 모델 요청 로그 ID를 넣어 원문을 추적하지 않는다.
+분류 모델명·프롬프트 버전은 분석 재현을 돕는 메타데이터다. AX-AI-WIRE-v2는 backend-expected flat wire이지 실제 provider 검증이 아니다. 사용자가 확인한 최종 값과 AI 실행 결과는 분리하며, 직접 수동 생성은 `USER`/`NOT_RUN`이다. 사본에 모델 요청 로그 ID를 넣어 원문을 추적하지 않는다.
 
 ## 7. 조회와 인덱스
 
