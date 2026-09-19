@@ -36,8 +36,10 @@ Domain (V1): app_user, place, memory, reaction, letter_delivery, report.
   Shared settings in `lombok.config` (repo root).
 - Flyway for DB migrations (`src/main/resources/db/migration/`); V1 enables the
   `vector` extension and adds a `vector(1024)` embedding column
-- Package root: `team4.emotionmap` (account / memory / place / letter / report / media / platform).
-  Entity, Repository, Service, Controller, and DTO belong to their owning feature.
+- Package root: `team4.emotionmap` (account / memory / place / letter / report / media / catalog /
+  platform / contracts). Entity, Repository, Service, Controller, and DTO belong to their owning feature.
+  `contracts` holds only shared ports, value objects, and the error contract (`ErrorCode`/`ContractError`/
+  `ApiError`); `catalog` owns `GET /config`, `/atmosphere-axes`, `/place-categories`.
 - Images: optional (content required). Stored on the local filesystem under
   `app.storage.upload-dir` with a **UUID key**; DB (`memory.image_path`) holds only the key.
   Two APIs: `POST /api/images` (multipart → JSON `{key,url}`) and `GET /api/images/{key}`
@@ -83,11 +85,21 @@ Controller → Service → Repository (Spring Data JPA) → PostgreSQL+pgvector.
 and its configuration. `platform` owns security and OpenAPI support.
 
 Do not access another module's entities, repositories, internal services, or DTOs.
-The only current cross-module contract is `account` → `platform.security.JwtTokenProvider`.
-Define an explicit public contract before introducing another cross-module dependency;
-update `architecture/ModuleArchitectureTest` to allow only that contract. Platform must
-not depend on business modules. ArchUnit checks module placement, access, and cycles
-in `./gradlew test`, without a database.
+Allowed cross-module dependencies: every module → `contracts..` (shared ports/value objects/
+errors; `contracts` itself depends on nothing inside the app), `platform` → `contracts` only,
+and `account` → `platform.security.JwtTokenProvider`. Define an explicit public contract in
+`contracts` before introducing another cross-module dependency and update
+`architecture/ModuleArchitectureTest` (add new modules to `MODULES`). Platform must not depend
+on business modules. ArchUnit checks module placement, access, and cycles in `./gradlew test`,
+without a database.
+
+Error handling: throw `contracts.error.ContractError` (with an `ErrorCode` from API_SPEC §10);
+`platform.web.GlobalExceptionHandler` turns it into the `ApiError` body with `Cache-Control`,
+`WWW-Authenticate`, `Retry-After`, and `X-Request-Id`. JSON is strict (Jackson 3): duplicate keys,
+unknown properties, and scalar coercion (`1.0`, `"1"`, `123`→string) are rejected; 4-axis
+`Atmospheres` is validated at the token level by `platform.web.json.AtmospheresJson`.
+Service limits/radius come only from `app.service.*` (`ServiceConfigSource`); no defaults in code.
+See `docs/plan/BE1_STAGE0_REPORT.md` for the current contract inventory and coordination list.
 
 URL nesting does not determine ownership: `/places/{id}/memories` belongs to
 `memory.PlaceMemoryController`, and reactions to `memory.reaction.ReactionController`.

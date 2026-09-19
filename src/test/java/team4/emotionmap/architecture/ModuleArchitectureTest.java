@@ -17,12 +17,22 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
-/** 공유 DB와 별개로 Java 모듈의 내부 타입 접근과 순환 의존성을 제한한다. */
+/**
+ * 공유 DB와 별개로 Java 모듈의 내부 타입 접근과 순환 의존성을 제한한다.
+ *
+ * <p>허용되는 모듈 간 계약(WORK_PLAN §8·§13.1, SHARED_CONTRACTS §3):
+ * <ul>
+ *   <li>{@code contracts} — 공동 계약(포트·값 객체·오류). 모든 모듈이 의존 가능. 자신은 내부 모듈에 의존하지 않는다.</li>
+ *   <li>{@code platform} — 보안·웹·OpenAPI 기반. contracts 에만 의존하고 업무 모듈에는 의존하지 않는다.</li>
+ *   <li>{@code account → platform.security.JwtTokenProvider} — 기존 명시 계약(A01 에서 재검토).</li>
+ * </ul>
+ */
 class ModuleArchitectureTest {
 
     private static final String ROOT = "team4.emotionmap";
+    private static final String CONTRACTS = "contracts";
     private static final List<String> MODULES =
-            List.of("account", "memory", "place", "letter", "report", "media", "platform");
+            List.of("account", "memory", "place", "letter", "report", "media", "catalog", "platform", CONTRACTS);
     private static final JavaClasses PRODUCTION_CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages(ROOT);
@@ -44,12 +54,33 @@ class ModuleArchitectureTest {
                 .check(PRODUCTION_CLASSES);
     }
 
+    @Test
+    void contractsDependOnNothingInsideTheApplication() {
+        classes().that().resideInAPackage(ROOT + "." + CONTRACTS + "..")
+                .should().onlyDependOnClassesThat(
+                        resideOutsideOfPackage(ROOT + "..").or(resideInAPackage(ROOT + "." + CONTRACTS + "..")))
+                .because("공동 계약은 구현 모듈을 모른다")
+                .check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    void platformDoesNotDependOnBusinessModules() {
+        classes().that().resideInAPackage(ROOT + ".platform..")
+                .should().onlyDependOnClassesThat(
+                        resideOutsideOfPackage(ROOT + "..")
+                                .or(resideInAPackage(ROOT + ".platform.."))
+                                .or(resideInAPackage(ROOT + "." + CONTRACTS + "..")))
+                .because("platform 은 업무 모듈에 의존하지 않는다")
+                .check(PRODUCTION_CLASSES);
+    }
+
     @TestFactory
     Stream<DynamicTest> modulesOnlyAccessTheirOwnTypesAndExplicitPublicContracts() {
-        return MODULES.stream().map(module -> dynamicTest(module, () -> {
+        return MODULES.stream().filter(m -> !m.equals(CONTRACTS)).map(module -> dynamicTest(module, () -> {
             DescribedPredicate<JavaClass> allowedDependencies =
                     resideOutsideOfPackage(ROOT + "..")
-                            .or(resideInAPackage(ROOT + "." + module + ".."));
+                            .or(resideInAPackage(ROOT + "." + module + ".."))
+                            .or(resideInAPackage(ROOT + "." + CONTRACTS + ".."));
             if (module.equals("account")) {
                 allowedDependencies = allowedDependencies.or(DescribedPredicate.describe(
                         "계정 모듈에 공개한 JWT 발급 API",

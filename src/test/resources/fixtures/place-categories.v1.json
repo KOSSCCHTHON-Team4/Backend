@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "code": "CAFE",
+      "label": "카페",
+      "definition": "음료·카페 이용이 중심인 공간",
+      "order": 1
+    },
+    {
+      "code": "RESTAURANT",
+      "label": "음식점",
+      "definition": "식사 제공·식사 이용이 중심인 공간",
+      "order": 2
+    },
+    {
+      "code": "BAR",
+      "label": "술집",
+      "definition": "술을 마시는 이용이 중심인 공간",
+      "order": 3
+    },
+    {
+      "code": "PARK_WALK",
+      "label": "공원·산책",
+      "definition": "공원·산책로 등 걷거나 쉬는 야외 공간",
+      "order": 4
+    },
+    {
+      "code": "CULTURE",
+      "label": "문화",
+      "definition": "전시·공연·박물관 등 문화 경험을 위한 공간",
+      "order": 5
+    },
+    {
+      "code": "STUDY_WORK",
+      "label": "공부·작업 공간",
+      "definition": "공부·작업 용도가 본문에서 드러나는 공간",
+      "order": 6
+    },
+    {
+      "code": "SHOPPING",
+      "label": "쇼핑",
+      "definition": "상품을 둘러보거나 구매하는 매장·시장 등",
+      "order": 7
+    },
+    {
+      "code": "OTHER",
+      "label": "기타",
+      "definition": "장소 유형은 알 수 있으나 다른 일곱 유형에 해당하지 않는 경우",
+      "order": 8
+    }
+  ]
+}

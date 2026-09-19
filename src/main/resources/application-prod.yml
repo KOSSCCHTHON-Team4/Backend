@@ -2,7 +2,9 @@
 # application-prod.yml  (배포용 — 로컬 배포 포함)
 #   !!! 민감값을 파일에 절대 하드코딩하지 않는다 !!!
 #   모든 비밀은 환경변수로 주입한다. 이 파일 자체는 커밋해도 안전하다.
-#     예) DB_URL, DB_USERNAME, DB_PASSWORD, APP_UPLOAD_DIR 를 환경변수로 설정
+#     예) DB_URL, DB_USERNAME, DB_PASSWORD, APP_UPLOAD_DIR, JWT_SECRET, SIGNING_SECRET,
+#         SERVICE_* (A03 /config 값: 공통 application.yml 의 app.service 키 참조) 를 환경변수로 설정.
+#     SERVICE_* 가 비어 있으면 GET /config 는 503 CONFIGURATION_UNAVAILABLE 로 실패한다(기본값 없음).
 # ============================================================================
 spring:
   datasource:

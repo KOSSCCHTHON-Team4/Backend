@@ -1,0 +1,32 @@
+{
+  "configVersion": "mock-config-v1",
+  "radiusMeters": 1000,
+  "demoCenter": {
+    "lat": 37.6109,
+    "lng": 126.9977
+  },
+  "deliveryTimeZone": "Asia/Seoul",
+  "deliveryLocalTime": "09:00",
+  "limits": {
+    "memoryContentMaxCodePoints": 3000,
+    "preferenceDescriptionMaxCodePoints": 1000,
+    "reportDetailsMaxCodePoints": 1000,
+    "imageMaxBytes": 5242880,
+    "imageMaxWidth": 6000,
+    "imageMaxHeight": 6000,
+    "imageMaxPixels": 20000000,
+    "imageUploadTtlSeconds": 1800,
+    "analysisTtlSeconds": 900,
+    "dailyDirectMemoryLimit": 20,
+    "defaultPageLimit": 20,
+    "maxPageLimit": 50,
+    "maxMapPageLimit": 200
+  },
+  "auth": {
+    "mode": "EMAIL_PASSWORD",
+    "refreshSupported": false,
+    "accessTokenTtlSeconds": 3600,
+    "failedLoginLimit": 5,
+    "loginLockSeconds": 60
+  }
+}
