@@ -57,3 +57,4 @@ application-local-secret.yml
 !.env.example
 .omp/
 docs/omp-multi-agent/
+docs/plan
