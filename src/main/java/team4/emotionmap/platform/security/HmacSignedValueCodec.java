@@ -42,6 +42,7 @@ public class HmacSignedValueCodec implements SignedValueCodec {
 
     private final byte[] rootSecret;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HmacSignedValueCodec(SigningProperties properties) {
         this(properties.secret());
     }
