@@ -125,6 +125,14 @@ URL query, JVM argv에 넣지 않는다.
 | `PASSWORD_BCRYPT_STRENGTH` | `app.security.password.bcrypt-strength`, account CLI | 정수 `4..31`. 라이브러리 허용 범위일 뿐 권장 운영값이 아니다. 실제 hardware/공격 모델/로그인 latency 측정 뒤 운영자가 선택한다. |
 | `LOGIN_FAILED_ATTEMPT_WINDOW_SECONDS` | `app.account.login.failed-attempt-window-seconds` | 초, 정수 `1..2147483647`. 누락/오류는 login 쪽 `CONFIGURATION_UNAVAILABLE`(503)일 수 있으며 health down을 보장하지 않는다. |
 
+#### M — 구현된 지도 cursor 설정
+
+| 변수 | binding | 단위·범위·실패 경계 |
+| --- | --- | --- |
+| `CURSOR_TTL` | `app.pagination.cursor-ttl` | 양의 Spring `Duration`. bare numeral은 초다. 값은 비어 있거나 0/음수일 수 없고, `Instant` 덧셈 또는 epoch-second 올림이 overflow하면 map 요청은 `CONFIGURATION_UNAVAILABLE`(503)으로 fail-closed 된다. 숫자 기본값은 없다. |
+
+이 설정은 현재 구현된 `GET /v1/places` cursor 발급·검증 요청에서만 소비된다. 첫 page expiry는 `now + CURSOR_TTL`을 epoch second로 올림해 TTL보다 일찍 만료하지 않으며 추가 시간은 1초 미만이다. continuation은 최초 expiry를 보존하고 TTL을 연장하지 않는다. 이 설명은 다른 목록 pagination, analysis/auth/image TTL 또는 전체 pagination/error 계약의 구현을 뜻하지 않는다.
+
 DB bootstrap은 빈 PGDATA의 공식 image 초기화 때만 실행된다. socket admin `postgres`로 app role,
 app-owned DB/public schema 및 `vector` extension을 만든다. app은 Flyway DDL owner일 수 있지만
 cluster superuser는 아니다. initializer가 실패·중단된 뒤에는 기존 PGDATA에서 자동 재실행되지
@@ -488,10 +496,10 @@ migration compatibility, DB+images consistency, locator/binding 영향, writer o
 | `deploy/postgres/10-init-app-db.sh` | empty PGDATA 단발 bootstrap, 별도 app/admin secret, non-superuser role, public/vector 권한 | 정적 대조만 수행 |
 | `AccountProvisioningCli` / `AccountProvisioningBootstrap` | `PropertiesLauncher` command, TTY/raw stdin, `--password-stdin`, `ACTIVE|PENDING`, BCrypt `4..31` | 정적 소스 대조만 수행 |
 | `ImageStorageActivationCli`, `ImageRootBinding`, `V9__image_storage_lifecycle.sql` | `storage-init-empty` flags, exit `0/1/2`, empty-only binding, DB/IP/OID/schema/marker constraints | 정적 소스 대조만 수행 |
-| service/storage/AI property source | M units/ranges, `CONFIGURATION_UNAVAILABLE` 경계, AI HTTP/header/timeout behavior | 정적 소스 대조만 수행 |
+| service/storage/AI/pagination property source | M units/ranges, `CONFIGURATION_UNAVAILABLE` 경계, AI HTTP/header/timeout behavior, map-only `CURSOR_TTL` fail-closed guard | 정적 소스 대조만 수행 |
 
-`DEPLOY-CONFIG-C1`의 구성 증거는 synthetic complete env에서 Compose 해석 성공, required M 45개 각각의
-누락·빈 값 거절(총 90회), 그리고 34개 구조 검사를 포함한다. 이 증거는 값 없는 환경/정적 manifest
+`DEPLOY-CONFIG-C1`/`C2`의 역사적 구성 증거는 synthetic complete env에서 Compose 해석 성공, 당시 required M 45개 각각의
+누락·빈 값 거절(총 90회), 그리고 34개 구조 검사를 포함한다. 이는 당시 artifact 범위의 기록이며 46개 PASS로 소급 변경하지 않는다. 이제 `CURSOR_TTL`이 새 required 입력이므로 현재 통합 candidate에서 별도의 Compose 재검증이 필요하다. 이 증거는 값 없는 환경/정적 manifest
 계약만 확인하며 real secret render나 Java binding, DB 권한, image build 또는 runtime readiness를 증명하지
 않는다. 기존 artifact-scope `APPROVE`도 이 정적 산출물 범위의 판단일 뿐, 최종 통합 후보나 배포의 승인이 아니다.
 

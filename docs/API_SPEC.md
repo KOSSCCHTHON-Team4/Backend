@@ -1424,15 +1424,19 @@ FE 목록에서 빠졌지만 기획서에 있는 내 기록 API다. 본인 LETTE
 
 **현재 사용자 권한 내 지도 핀** · operationId: `listVisiblePlaces` · 성공 `200`
 
-bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. 자동 인접 병합·업체 검색은 없고, placeId를 명시한 경우에만 기존 가시 핀을 재사용한다. FE의 시각 클러스터는 식별자와 권한을 바꾸지 않는다. label이 없으면 null이다. id ASC 커서에 bbox를 귀속한다.
+bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환하는 **구현된** 지도 조회다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. 자동 인접 병합·업체 검색은 없고, placeId를 명시한 경우에만 기존 가시 핀을 재사용한다. FE의 시각 클러스터는 식별자와 권한을 바꾸지 않는다. 동일 좌표의 다른 Place UUID는 별도 item이며 label은 null일 수 있다.
+
+이 경로의 query 이름은 `bbox`, `cursor`, `limit`만 허용한다. `bbox`는 정확히 한 번 필수이고 `cursor`와 `limit`도 존재하면 각각 정확히 한 번이어야 한다. 알 수 없는 이름·반복값은 `INVALID_REQUEST`; cursor의 빈값/공백은 첫 페이지 생략으로 정규화하지 않고 `INVALID_CURSOR`다. 이 지도 조회에는 분위기·카테고리 등 축 filter가 없으며 다른 제안 목록의 filter 계약을 적용하지 않는다.
 
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|
-| query | `bbox` | 예 | string — westLng,southLat,eastLng,northLat. 위경도범위·west<east/south<north 서버검증. 반자오선횡단은MVP지원안함. |
-| query | `cursor` | 아니오 | string — opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다. |
-| query | `limit` | 아니오 | integer — 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit. |
+| query | `bbox` | 예 | string — URL decode 뒤 `westLng,southLat,eastLng,northLat`의 네 성분. 각 성분은 공백을 제거한 `-?[0-9]+(?:\.[0-9]+)?` finite binary64이며 lng `[-180,180]`, lat `[-90,90]`, `west<east`, `south<north`이어야 한다. `+`, 지수, NaN/Infinity, 빈/여분 성분, 0폭·0높이·반자오선 횡단은 `INVALID_BBOX`다. 경계는 포함한다. |
+| query | `cursor` | 아니오 | opaque cursor — 첫 페이지에서는 생략. 서명은 사용자, `/v1/places`, `pg-uuid-asc`, 정규화 bbox(`-0`은 `+0`, `Double.toString`), filter=`none`, effective limit 및 최초 상한 UUID에 귀속된다. 다른 유효 bbox/limit은 `CURSOR_CONTEXT_MISMATCH`; 변조·만료·다른 사용자·빈값·형식 오류는 `INVALID_CURSOR`다. |
+| query | `limit` | 아니오 | 10진 양의 integer. 생략 시 `/v1/config.limits.defaultPageLimit`; `1..maxMapPageLimit`만 허용하며 clamp하지 않는다. default가 map 상한보다 크거나 cursor TTL 설정이 없거나 0/음수/overflow면 `CONFIGURATION_UNAVAILABLE`(503)다. |
 
-**요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
+`items`/`pageInfo` 봉투를 사용한다. 정렬은 PostgreSQL UUID의 unsigned byte 순서 ASC이고 `limit+1` lookahead로 `hasMore == (nextCursor != null)`을 만든다. continuation은 `afterId < id <= 최초 upperId`를 사용하며 최초 만료시각을 그대로 보존한다. 매 요청 설정 guard를 적용하지만 다음 page가 TTL을 연장하지 않는다. 만료 시각 이상은 `INVALID_CURSOR`다.
+
+각 item의 기존 profile 필드 10개는 `id`, `label`, `lat`, `lng`, `naverTitle`, `naverAddress`, `categoryCode`, `categorySource`, `reviewCount`, `vibe`이고 `memoryCount`는 별도 requester-visible count다. `memoryCount`는 현재 사용자가 보이는 모든 ACTIVE 경험(본인 또는 승인되어 실제 수신한 LETTER)을 센다. `reviewCount`/`vibe`/REVIEWS category는 그 가시 집합 중 적격 DIRECT 경험(본인 PRIVATE 또는 APPROVED)만으로 계산한다. 따라서 다른 사용자 PRIVATE·미수신/미승인 LETTER·숨김/삭제 경험 및 전역 Place profile/cache는 이 응답의 근거가 아니며 누출하지 않는다. `reviewCount=0`이면 `vibe=null`; vibe는 `crowdLevel`, `spatialFeel`, `companyFit`, `stayStyle` 네 실수만 포함하고 `zero` 보조 필드는 없다.
 
 **응답 스키마:** `PlacePage`
 
@@ -1443,9 +1447,15 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
   "items": [
     {
       "id": "20000000-0000-4000-8000-000000000001",
+      "label": null,
       "lat": 37.6109,
       "lng": 126.9977,
-      "label": null,
+      "naverTitle": "예시 카페",
+      "naverAddress": "서울특별시 예시구",
+      "categoryCode": "CAFE",
+      "categorySource": "NAVER",
+      "reviewCount": 1,
+      "vibe": {"crowdLevel": -0.3333333333333333, "spatialFeel": -0.3333333333333333, "companyFit": 0.3333333333333333, "stayStyle": -0.3333333333333333},
       "memoryCount": 2
     }
   ],
@@ -1456,7 +1466,7 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 }
 ```
 
-**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`, `INVALID_BBOX`。
+**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `ONBOARDING_REQUIRED`, `INVALID_CURSOR`, `CURSOR_CONTEXT_MISMATCH`, `INVALID_REQUEST`, `INVALID_BBOX`, `CONFIGURATION_UNAVAILABLE`。
 
 ### 8.21 `GET /v1/places/{id}/memories`
 

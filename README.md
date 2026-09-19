@@ -186,6 +186,7 @@ DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `ps
 - 프로필: `SPRING_PROFILES_ACTIVE=local|ci|prod`. `ci`는 DB 없는 테스트용이지 독립적인 앱 부팅용이 아닙니다.
 - JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 root는 `APP_UPLOAD_DIR`로 설정합니다. 이미지 요청 lease는 양수 ISO-8601 `Duration`인 `REQUEST_COORDINATION_LEASE_DURATION`, 정리 주기는 양수 ISO-8601 `Duration`인 `IMAGE_CLEANUP_INTERVAL`, 정리 배치는 양의 정수 `IMAGE_CLEANUP_BATCH_SIZE`로 각각 명시합니다. 이 값들에는 운영 기본값이 없으며 누락·무효면 새 이미지 쓰기/새 요청 선점 또는 정리가 보존 방향으로 닫힙니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
 - 토큰 TTL은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS` 하나로 설정합니다. 브라우저 origin은 `CORS_ALLOWED_ORIGINS`의 정확한 allowlist로 지정하며 운영 FE 주소를 추측해 허용하지 않습니다.
+- 지도 cursor TTL은 `CURSOR_TTL`로 명시한다. 양의 Spring `Duration`만 허용하고 bare numeral 단위는 초이며 운영 기본값은 없다. 누락·blank·0·음수 또는 expiry 계산 overflow면 구현된 `GET /v1/places` 요청만 `CONFIGURATION_UNAVAILABLE`(503)으로 fail-closed 된다. 첫 page의 expiry는 epoch second로 올림되어 TTL보다 일찍 만료하지 않고(추가 시간 1초 미만), continuation은 그 최초 expiry를 재사용한다. 이 설정이 다른 목록 pagination이나 auth/analysis/image TTL에 적용된다고 가정하지 않는다.
 - prod는 실제 AI provider와 분석·안전 검사·동률 평가 구현이 없으면 기동을 거부합니다. 현재 mock 구현만으로 운영 준비가 완료되었다고 판단하지 않습니다.
 - 실행 후 [Swagger UI](http://localhost:8080/swagger-ui.html)와 [현재 OpenAPI JSON](http://localhost:8080/v3/api-docs)을 확인할 수 있습니다. 최신 계약 YAML이 자동으로 서버에 적용되는 것은 아닙니다.
 

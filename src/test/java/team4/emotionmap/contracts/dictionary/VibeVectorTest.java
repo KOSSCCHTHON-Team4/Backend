@@ -53,4 +53,11 @@ class VibeVectorTest {
         // 방향은 보존된다: 실수 벡터와 ±1 벡터의 코사인은 1
         assertThat(p.cosine(new VibeVector(-1, -1, -1, -1))).isCloseTo(1.0, within(1e-9));
     }
+
+    @Test
+    void aggregateShrinkageDoesNotOverflowTheIntegerDenominator() {
+        int count = Integer.MAX_VALUE;
+        VibeVector profile = VibeVector.shrunkMeanFromSums(count, count, count, count, count, count);
+        assertThat(profile).isEqualTo(new VibeVector(0.5, 0.5, 0.5, 0.5));
+    }
 }
