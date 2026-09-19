@@ -20,6 +20,8 @@ import team4.emotionmap.contracts.geo.GeoPoint;
 @Slf4j
 @Component
 public class ServiceConfigProvider implements ServiceConfigSource {
+    /** B + 1 must fit the byte[] length accepted by the bounded upload reader. */
+    private static final long MAX_IMAGE_BYTES_FOR_BOUNDED_READ = (long) Integer.MAX_VALUE - 1;
 
     private final ServiceConfig config;       // null 이면 사용 불가
     private final List<String> missingKeys;
@@ -96,6 +98,8 @@ public class ServiceConfigProvider implements ServiceConfigSource {
         if (!missing.isEmpty()) {
             return null;
         }
+        requireImageBytesRepresentable(l.imageMaxBytes());
+
         ServiceLimits limits = new ServiceLimits(
                 l.memoryContentMaxCodePoints(), l.preferenceDescriptionMaxCodePoints(), l.reportDetailsMaxCodePoints(),
                 l.imageMaxBytes(), l.imageMaxWidth(), l.imageMaxHeight(), l.imageMaxPixels(),
@@ -110,5 +114,11 @@ public class ServiceConfigProvider implements ServiceConfigSource {
             missing.add(key);
         }
         return value;
+    }
+
+    private static void requireImageBytesRepresentable(long imageMaxBytes) {
+        if (imageMaxBytes > MAX_IMAGE_BYTES_FOR_BOUNDED_READ) {
+            throw new IllegalArgumentException("imageMaxBytes exceeds bounded byte[] reader representability");
+        }
     }
 }

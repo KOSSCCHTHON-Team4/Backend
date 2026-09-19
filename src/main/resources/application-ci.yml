@@ -19,6 +19,9 @@ spring:
 
 app:
   # CI 단위 테스트용 합성 설정. prod 프로필에는 적용되지 않는다.
+  security:
+    password:
+      bcrypt-strength: ${PASSWORD_BCRYPT_STRENGTH:4}
   signing:
     secret: ${SIGNING_SECRET:local-dev-only-change-me-emotionmap-signing-secret-key-0987654321}
   jwt:

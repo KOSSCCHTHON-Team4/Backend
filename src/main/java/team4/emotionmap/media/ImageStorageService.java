@@ -1,101 +1,44 @@
 package team4.emotionmap.media;
 
-import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Iterator;
-import java.util.Locale;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.stream.ImageInputStream;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
+import team4.emotionmap.contracts.error.ContractError;
+import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.contracts.media.SanitizedImage;
+import team4.emotionmap.contracts.media.StoredImageMeta;
 
 @Service
+@Slf4j
 public class ImageStorageService {
-    private final StorageProperties props;
     private final Path root;
 
-    @Value("${app.storage.max-pixels:20000000}")
-    private long maxPixels;
-
-    public ImageStorageService(StorageProperties props) {
-        this.props = props;
-        this.root = Path.of(props.uploadDir()).toAbsolutePath().normalize();
+    public ImageStorageService(StorageProperties properties) {
+        this.root = Path.of(properties.uploadDir()).toAbsolutePath().normalize();
     }
 
-    public StoredUpload store(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new InvalidUploadException("Image is empty");
-        }
-        if (file.getSize() > props.maxSizeBytes()) {
-            throw new InvalidUploadException("Image exceeds maximum byte size");
-        }
-        try (InputStream stream = file.getInputStream();
-             ImageInputStream input = ImageIO.createImageInputStream(stream)) {
-            if (input == null) {
-                throw new InvalidUploadException("Invalid image");
+    public StoredImageMeta store(SanitizedImage image) {
+        String key = UUID.randomUUID() + "." + image.mediaType().extension();
+        Path target = root.resolve(key);
+        boolean targetCreated = false;
+        try {
+            Files.createDirectories(root);
+            try (OutputStream output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE)) {
+                targetCreated = true;
+                output.write(image.bytes());
             }
-            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
-            if (!readers.hasNext()) {
-                throw new InvalidUploadException("Invalid image format");
+            return new StoredImageMeta(key, image.mediaType(), image.sizeBytes(), image.width(), image.height());
+        } catch (IOException ignored) {
+            if (targetCreated) {
+                cleanupAfterFailure(target);
             }
-            ImageReader reader = readers.next();
-            try {
-                String format = reader.getFormatName().toLowerCase(Locale.ROOT);
-                if (!format.equals("jpeg") && !format.equals("png")) {
-                    throw new InvalidUploadException("Only JPEG and PNG images are supported");
-                }
-                if (!props.allowedExtensions().contains(format)
-                        && !(format.equals("jpeg") && props.allowedExtensions().contains("jpg"))) {
-                    throw new InvalidUploadException("Image format is disabled");
-                }
-                reader.setInput(input, true, true);
-                int width = reader.getWidth(0);
-                int height = reader.getHeight(0);
-                if (width < 1 || height < 1 || (long) width * height > maxPixels) {
-                    throw new InvalidUploadException("Image dimensions exceed the pixel limit");
-                }
-                BufferedImage decoded = reader.read(0);
-                if (decoded == null) {
-                    throw new InvalidUploadException("Invalid image data");
-                }
-                try {
-                    Files.createDirectories(root);
-                } catch (IOException e) {
-                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Image storage unavailable", e);
-                }
-                String key = UUID.randomUUID() + (format.equals("jpeg") ? ".jpg" : ".png");
-                Path target = root.resolve(key);
-                try {
-                    if (!ImageIO.write(decoded, format, target.toFile())) {
-                        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Image encoder unavailable");
-                    }
-                    long size = Files.size(target);
-                    if (size > props.maxSizeBytes()) {
-                        throw new InvalidUploadException("Encoded image exceeds maximum byte size");
-                    }
-                    return new StoredUpload(key, "image/" + format, size, width, height);
-                } catch (IOException failure) {
-                    cleanupAfterFailure(target, failure);
-                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Image storage unavailable", failure);
-                } catch (RuntimeException failure) {
-                    cleanupAfterFailure(target, failure);
-                    throw failure;
-                } finally {
-                    decoded.flush();
-                }
-            } finally {
-                reader.dispose();
-            }
-        } catch (IOException e) {
-            throw new InvalidUploadException("Image could not be decoded", e);
+            throw ContractError.of(ErrorCode.IMAGE_STORAGE_UNAVAILABLE);
         }
     }
 
@@ -112,20 +55,25 @@ public class ImageStorageService {
         StoredImage source = load(key);
         String copiedKey = UUID.randomUUID() + (key.endsWith(".png") ? ".png" : ".jpg");
         Path target = root.resolve(copiedKey);
-        try {
-            Files.copy(source.path(), target);
+        boolean targetCreated = false;
+        try (OutputStream output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE)) {
+            targetCreated = true;
+            Files.copy(source.path(), output);
             return copiedKey;
-        } catch (IOException failure) {
-            cleanupAfterFailure(target, failure);
-            throw new IllegalStateException("Image copy failed", failure);
+        } catch (IOException ignored) {
+            if (targetCreated) {
+                cleanupAfterFailure(target);
+            }
+            throw new IllegalStateException("Image copy failed");
         }
     }
 
     public void delete(String key) {
         try {
             Files.deleteIfExists(resolve(key));
-        } catch (IOException e) {
-            throw new IllegalStateException("Image cleanup failed", e);
+        } catch (IOException ignored) {
+            throw new IllegalStateException("Image cleanup failed");
         }
     }
 
@@ -140,14 +88,11 @@ public class ImageStorageService {
         return target;
     }
 
-    private void cleanupAfterFailure(Path target, Exception failure) {
+    private void cleanupAfterFailure(Path target) {
         try {
             Files.deleteIfExists(target);
-        } catch (IOException cleanup) {
-            failure.addSuppressed(cleanup);
+        } catch (IOException ignored) {
+            log.error("Failed to clean up a partial image file");
         }
-    }
-
-    public record StoredUpload(String key, String mediaType, long sizeBytes, int width, int height) {
     }
 }

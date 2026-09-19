@@ -82,6 +82,7 @@ UUID ID, smallint 축·분류, `Instant`/timestamptz, `LocalDate`/date, 문자�
 - `ci`: DataSource/JPA/Flyway 자동구성 비활성화. DB 없는 테스트용이며 전체 앱 실행용이 아니다.
 - `prod`: 서로 다른 32바이트 이상 `JWT_SECRET`·`SIGNING_SECRET`을 공급한다. 누락·짧은 값·동일값·알려진 개발용 값은 기동을 거부하며, `prod,local` 조합으로 우회할 수 없다. 개발용 DB 비밀번호도 재사용하지 않는다.
 - 개발용 비밀과 mock AI 설정은 `local`·`ci` 전용이다. `prod`에는 non-mock `AI_PROVIDER`와 실제 분석·안전 검사·동률 평가 포트 구현이 모두 필요하다. 현재 저장소는 실제 provider를 구현하지 않았으므로 prod 기동 준비가 완료된 상태가 아니다.
+- 비밀번호 해시 비용은 `PASSWORD_BCRYPT_STRENGTH`로 지정한다. BCrypt 라이브러리 허용 범위는 4–31이며 운영 비용은 배포 환경에서 별도로 실측·승인한다. `local`·`ci`의 4는 합성 테스트용 기본값이다. `prod`가 포함되면 혼합 프로필에서도 명시적 환경값이 없을 때 기동을 거부한다.
 
 ## 6. CI / CD (DB 비연결)
 
@@ -105,7 +106,23 @@ psql -d emotionmap -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 `psql`이 PATH에 없다면 PostgreSQL 17의 bin 경로를 사용한다. 기존 계정·DB에 생성 명령을 반복하지 않는다. Ubuntu/Debian에서는 해당 배포판의 PostgreSQL 17·pgvector 패키지를 준비한다.
 
-로그인용 앱 계정은 DB 접속 계정과 별개다. 공개 회원가입 API는 없다. 내부 운영 절차에서 ACTIVE `app_users`와 BCrypt 해시를 가진 `email_password_credentials`를 준비해야 한다. 이메일 조회키는 `EmailPasswordCredential.normalizeEmailLookupKey`와 동일하게 생성하고, 원문 비밀번호·공용 계정 시크릿을 SQL·Git·로그에 넣지 않는다. 계정 자동 seed는 제공하지 않는다.
+로그인용 앱 계정은 DB 접속 계정과 별개다. 공개 회원가입 API와 계정 자동 seed는 없다. 최초 자격증명은 아래 내부 CLI로만 공급하며, 원문 비밀번호·공용 계정 시크릿을 SQL·Git·로그에 넣지 않는다.
+
+### 7.1 최초 계정 공급
+
+대상 DB·스키마에 현재 Flyway 마이그레이션을 먼저 적용한다. CLI는 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SCHEMA`, `PASSWORD_BCRYPT_STRENGTH`를 모두 명시적으로 요구하며 기본 개발 DB로 대체하지 않는다. CLI 자체는 migration·SQL init·웹 서버·JWT·AI 설정을 실행하거나 요구하지 않고 스키마를 `validate`만 한다.
+
+```bash
+./gradlew bootJar
+java -Dloader.main=team4.emotionmap.account.AccountProvisioningCli \
+  -cp build/libs/emotion-map-0.0.1-SNAPSHOT.jar \
+  org.springframework.boot.loader.launch.PropertiesLauncher \
+  --email participant@example.invalid --status PENDING
+```
+
+기본 모드는 실제 콘솔에서 숨김 입력을 받는다. 입력 안내 문구는 출력하지 않는다. 비밀번호를 입력하고 Enter를 누른다. 콘솔이 없으면 실패하며 비밀번호 argv·환경변수·평문 파일 입력으로 대체하지 않는다. 자동화는 승인된 비밀 공급 프로세스의 파이프로 `--password-stdin`을 사용한다. 표준입력은 UTF-8 원문 전체이며 끝의 개행도 비밀번호에 포함되므로 자동 추가하지 않는다. `provisionUser` Gradle task도 같은 CLI의 stdin 모드를 지원하며 devtools를 제외한 운영용 클래스패스를 사용한다. stdin 모드에서 터미널에 비밀번호를 직접 타이핑하지 않는다.
+
+`--status`는 `ACTIVE` 또는 `PENDING`을 명시해야 한다. 역할은 항상 `USER`이고 위치·취향·온보딩 이력은 만들지 않는다. 성공한 CLI는 UUID와 상태만 출력한다. 실패는 고정 오류 문구와 종료 코드 1이며, 기존 이메일을 다시 공급해도 비밀번호·상태·로그인 제한을 재설정하지 않는다. 정규화 이메일의 제한 행을 로그인과 공유해 잠그고 계정·자격증명을 한 트랜잭션으로 만든다. 실제 참여자에 대한 승인과 개인별 비밀 전달은 별도 운영 절차다.
 
 ## 8. 팀 합의 규칙
 
@@ -152,14 +169,14 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 
 ## 12. 이미지 처리 (로컬 저장 · JSON/바이너리 API 분리)
 
-1. `POST /v1/images`에 JPG/PNG를 multipart로 전송한다.
-2. 파일을 디코딩해 실제 형식·바이트·픽셀 제한을 검사하고 재인코딩한다. UUID 파일명과 본인 소유 STAGED 메타데이터를 저장하고 `imageId`를 반환한다.
-3. `POST /v1/memories`에서 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다.
-4. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 검사한 뒤 바이너리를 반환한다. 원본 key 기반 공개 GET은 없다.
+1. `POST /v1/images`는 JPG/PNG multipart를 받는 보호 경로다. Security 인증이 성공한 뒤, `REQUEST`에만 등록된 좁은 gate가 본문·파라미터·part를 읽지 않고 서비스 설정과 전송 설정을 검사한다. 무인증 요청은 gate보다 먼저 401이고 CORS preflight는 이 gate의 대상이 아니다.
+2. gate를 통과한 요청만 servlet multipart parser로 들어간다. 파일 한도 `B`는 `ServiceConfigSource.current().limits().imageMaxBytes()`이고, 요청 한도는 파일 외 오버헤드 `H`를 더한 `B + H`다. `H`는 배포 시 양수 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`로 명시하며, 덧셈은 오버플로 없이 확인한다.
+3. 서비스는 현재 ACTIVE 소유자를 잠근 뒤 실제 입력을 최대 `B + 1`바이트까지 읽고, 실제 JPEG/PNG·바이트·폭·높이·픽셀을 검사하여 재인코딩한다. 그 결과만 UUID 파일명으로 저장하고 본인 소유 STAGED 메타데이터와 같은 `Instant` 기준 만료 시각을 기록해 `imageId`를 반환한다.
+4. `POST /v1/memories`에서 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 검사한 뒤 바이너리를 반환한다. 원본 key 기반 공개 GET은 없다.
 
-설정: `app.storage.upload-dir`, `allowed-extensions`, `max-size-bytes`, `staging-ttl`(개발 기본 PT30M), `max-pixels`(개발 기본 20000000). 파일 최대 10MB 등 기본값은 운영 합의값이 아니다. 파일은 배포 후에도 유지되는 경로에 보관한다.
+설정: `app.storage`에는 로컬 루트 `upload-dir`과 nullable `multipart-request-overhead-bytes`만 둔다. 이미지 업무 한도와 STAGED TTL은 `app.service.limits`가 유일한 원천이며 storage 기본값으로 대체하지 않는다. `H`가 없거나 비양수이거나 `B + H`가 넘치면 앱은 기동하되 신규 이미지 업로드만 `CONFIGURATION_UNAVAILABLE`(503)으로 닫고, 서비스 설정이 정상인 `/v1/config`는 계속 제공한다. 서비스 설정 자체가 없으면 업로드와 `/v1/config` 모두 503이다. multipart 임시 위치와 file-size threshold를 설정한 경우에는 Spring의 기술 설정을 보존한다.
 
-좋아요는 별도 UUID 경로로 이미지를 복사한다. PRIVATE·분류 INSERT와 liked_at 갱신은 하나의 DB 트랜잭션이다. 확실한 롤백이면 생성한 파일만 정리하고, 커밋 여부 불명 상태에서는 잠재적으로 유효한 사본 파일을 지우지 않는다. 프로세스 중단 고아 파일·만료 이미지의 주기적 정리와 운영 보존 정책은 별도 작업이다.
+저장 중 알려진 I/O 실패는 경로·원인 예외 없이 `IMAGE_STORAGE_UNAVAILABLE`(503)으로 번역한다. 저장 또는 독립 복사 중 부분적으로 만든 파일과 확실한 트랜잭션 롤백의 파일만 정리하며, 커밋 또는 결과 미상 파일은 보존한다. 기존 이미지의 읽기·독립 복사·저장된 만료 시각 기반 첨부 판정은 신규 업로드 설정을 다시 읽지 않는다. 프로세스 중단 고아 파일·만료 이미지의 주기적 정리와 운영 보존 정책은 별도 작업이다.
 
 ## 13. API 명세 (springdoc-openapi / Swagger UI)
 
@@ -173,10 +190,14 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 - 공개 업무 API는 `POST /v1/auth/login`뿐이다. Swagger와 health는 별도 공개 기술 경로다.
 - Principal과 JWT subject는 UUID다. 클라이언트가 보내는 ownerId/userId를 신뢰하지 않는다.
 - BCrypt 자격증명을 검사한 뒤 ACTIVE 상태를 확인한다. 없는 이메일·틀린 비밀번호는 같은 인증 실패를 반환한다.
+- 이메일은 올바르게 형성된 Unicode만 허용하고, 기존 `strip`·`Locale.ROOT` 소문자화를 최초 공급과 로그인에 동일하게 적용한다. 잘못된 surrogate를 대체 바이트로 바꿔 다른 식별자·제한 키로 처리하지 않는다. 비밀번호는 변형하지 않으며 비어 있지 않은 유효 UTF-8 최대 72바이트만 받는다. 기존 BCrypt 해시의 내장 비용으로 검증하고 자동 재해시는 하지 않는다.
+- 로그인 제한은 PostgreSQL `login_attempt_limits`에 저장한다. 키는 정규화 이메일에 도메인 접두어를 붙인 SHA-256 소문자 64자리 hex다. 원문 이메일을 저장하지 않는 가명화이지 사전 공격에 대한 익명화·비밀 보호는 아니다.
+- 실패 한도 N과 잠금 초 L은 공개 서비스 설정, 고정 관찰 구간 W는 양수 `LOGIN_FAILED_ATTEMPT_WINDOW_SECONDS`다. W에는 운영 기본값이 없다. 첫 실패부터 W를 계산하고 N번째 실패부터 429로 잠근다. 잠금 중 올바른 비밀번호도 429이며 창·기한을 연장하지 않는다. 응답과 `Retry-After`는 실제 남은 초를 올림한 같은 양수다.
+- 키 행 → 현재 사용자 → 자격증명 순서로 잠그고 검증 후 DB 시각으로 창·잠금을 결정한다. 올바른 비밀번호는 이후 계정 상태가 403이더라도 제한을 먼저 커밋해 초기화한다. 없는 이메일도 같은 제한과 프로세스별 dummy BCrypt 검증을 사용한다. 입력 오류·DB/검증기 장애는 비밀번호 실패로 집계하지 않는다. 필수 인증 설정·W가 없거나 유효하지 않으면 로그인은 503이며 제한 행을 변경하지 않는다.
 - 보호 요청에서도 현재 계정 상태를 확인하고 온보딩 전 허용 경로를 제한한다. JWT 발급 당시 ACTIVE였다는 사실만 믿지 않는다.
 - `JWT_SECRET`·`SIGNING_SECRET`은 환경변수로 주입한다. 토큰의 초 단위 TTL과 로그인 응답은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS`를 함께 사용한다. 기존 `JWT_EXPIRATION_MILLIS`는 사용하지 않는다. 필요한 서비스 설정이 없으면 발급은 503으로 실패한다. 발급·검증은 동일한 UTC `Clock`을 사용한다.
 - 현재 access token만 발급하고 refresh·공개 가입·위치 변경 경로는 제공하지 않는다.
 - `CORS_ALLOWED_ORIGINS`는 쉼표로 구분한 정확한 origin allowlist다. wildcard·credential cookie는 허용하지 않는다. 허용된 preflight만 CORS 필터가 처리하며 일반 OPTIONS 요청의 업무 API 인증은 유지한다. 브라우저에 `X-Request-Id`·`Retry-After`·`WWW-Authenticate`를 노출한다.
 - 본인 또는 실제 수신자라는 객체별 접근 자격을 확인한다. 삭제·숨김 대상은 기존 접근자에게 410, 미권한자에게 404를 반환한다. 이미지·핀·집계에도 같은 가시성 원칙을 적용한다.
 - 내부 ERROR dispatch는 원래 오류 상태를 보존하도록 허용한다. 이는 외부 `/error` 요청을 공개한다는 뜻이 아니다.
-- Swagger의 Authorize에 발급된 JWT를 넣어 보호 API를 호출한다. 로그인 제한·운영자 도구·전체 공통 오류 계약은 별도 구현 항목이다.
+- Swagger의 Authorize에 발급된 JWT를 넣어 보호 API를 호출한다. 공개 운영자 도구·전체 공통 오류 계약은 별도 구현 항목이며 내부 계정 공급 CLI가 운영자 API를 의미하지 않는다.

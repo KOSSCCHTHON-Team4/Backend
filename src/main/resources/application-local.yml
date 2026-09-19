@@ -56,6 +56,10 @@ app:
       login-lock-seconds: ${SERVICE_AUTH_LOGIN_LOCK_SECONDS:60}
 
   # local 전용 합성 보안·AI 설정. 운영 비밀/실 provider가 아니다.
+  security:
+    password:
+      # 합성 개발 비용일 뿐 운영 권고값이 아니다.
+      bcrypt-strength: ${PASSWORD_BCRYPT_STRENGTH:4}
   signing:
     secret: ${SIGNING_SECRET:local-dev-only-change-me-emotionmap-signing-secret-key-0987654321}
   jwt:

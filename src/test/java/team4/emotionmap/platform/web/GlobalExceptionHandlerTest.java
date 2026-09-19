@@ -30,7 +30,6 @@ import team4.emotionmap.contracts.dictionary.Atmospheres;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
 import team4.emotionmap.media.ImageNotFoundException;
-import team4.emotionmap.media.InvalidUploadException;
 import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -83,11 +82,6 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/probe/image")
         String image() {
             throw new ImageNotFoundException("storage path /private/uploads must not leak");
-        }
-
-        @PostMapping("/probe/image")
-        String upload() {
-            throw new InvalidUploadException("internal decoder detail must not leak");
         }
 
         @GetMapping("/probe/boom")
@@ -172,17 +166,12 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void annotatedMainExceptionsKeepSafeClientErrors() throws Exception {
+    void annotatedMainExceptionKeepsSafeClientError() throws Exception {
         MvcResult missing = mvc.perform(get("/probe/image"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
                 .andReturn();
         assertThat(missing.getResponse().getContentAsString()).doesNotContain("/private/uploads");
-        MvcResult invalid = mvc.perform(post("/probe/image"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andReturn();
-        assertThat(invalid.getResponse().getContentAsString()).doesNotContain("internal decoder");
     }
 
     @Test
