@@ -34,9 +34,8 @@ public class DailySelection {
     @Column(name = "radius_m", nullable = false)
     private Integer radiusM;
 
-    @Builder.Default
     @Column(name = "rule_version", nullable = false, columnDefinition = "text")
-    private String ruleVersion = "atmosphere-v1";
+    private String ruleVersion;
 
     @Builder.Default
     @Column(name = "random_seed", nullable = false)
@@ -70,7 +69,7 @@ public class DailySelection {
     private Integer topTieCount;
 
     @Column(name = "fixed_score")
-    private Short fixedScore;
+    private Double fixedScore;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "tie_break_method", columnDefinition = "text")

@@ -2,7 +2,7 @@
 
 Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data JPA · Flyway
 
-이 문서는 **현재 코드의 구조와 실행 방법**을 설명한다. 제품 요구는 [MVP_PLAN](docs/MVP_PLAN.md), 데이터 모델은 [ERD](docs/ERD.md), 전체 참여자 API 계약은 [API_SPEC](docs/API_SPEC.md)와 [OpenAPI](docs/openapi.yaml)를 참고한다. 최신 영속성 모델과 기존 호출부를 전환했지만 정기 배달·AI·전체 22개 API를 모두 구현한 것은 아니다.
+이 문서는 **현재 코드의 구조와 실행 방법**을 설명한다. 제품 요구는 [MVP_PLAN](docs/MVP_PLAN.md), 데이터 모델은 [ERD](docs/ERD.md), 전체 참여자 API 계약은 [API_SPEC](docs/API_SPEC.md)와 [OpenAPI](docs/openapi.yaml)를 참고한다. 최신 영속성 모델과 V11 공유 publication/config-history primitive는 구현됐고 실제 Spring/PostgreSQL에서 검증했지만, 계정·경험 producer와 정기 배달 worker·AI·전체 22개 API를 모두 구현한 것은 아니다.
 
 ## 1. 확정된 공통 스택
 
@@ -31,7 +31,7 @@ Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data
 | `letter` | DailySelection, LetterDelivery, 수신·읽음·좋아요 |
 | `report` | Report, 신고 접수·처리 상태 |
 | `media` | ImageUpload, durable image-request receipt, root binding, 임시 업로드·로컬 파일 저장·독립 복사·정리 |
-| `platform` | JWT·접근 Guard 계약, JSON 파서, OpenAPI, 요청 소유권 lease |
+| `platform` | JWT·접근 Guard 계약, JSON 파서, OpenAPI, 요청 소유권 lease, PostgreSQL publication fence adapter |
 
 ### 2-1. 모듈 경계와 의존성 규칙
 
@@ -43,6 +43,7 @@ Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data
 - `AccountAccessGuard`는 platform이 소유하고 account가 구현한다. JWT 필터가 account Entity·Repository를 직접 가져오지 않는다.
 - 지도 Repository는 공유 DB에 대한 가시성 EXISTS 조건으로 조회한다. `place → memory → place` Java 순환을 만들지 않는다.
 - ArchUnit은 명시된 모듈 소속, 공개 계약 외 접근, 모듈 간 순환 의존을 검사한다.
+- `SelectionPublicationBarrier`는 작은 공유 DB 계약이다. 호출자의 같은 datasource writable READ COMMITTED transaction에만 참여하며, fence row lock을 업무 행 lock보다 먼저 얻는다. `publicationTime()`은 lock 뒤 DB `clock_timestamp()`와 sealed watermark로 결정하고 독립 commit이나 JVM 시계를 권위로 쓰지 않는다. 이것은 worker 자체가 아니며 platform adapter는 업무 Entity·Repository를 import하지 않는다.
 
 ## 3. 시스템 구성도
 
@@ -61,7 +62,7 @@ flowchart LR
 
 ## 4. 데이터 모델
 
-기본 도메인 10개와 이미지 수명 보완 테이블 `image_uploads`, root↔dataset 소유권 앵커 `image_storage_binding`이 있다.
+기본 도메인 10개와 선정 설정 이력 `selection_config_versions`, singleton cutoff fence `selection_cutoff_fence`, 이미지 수명 보완 테이블 `image_uploads`, root↔dataset 소유권 앵커 `image_storage_binding`이 있다.
 
 - `app_users`: 초대 접근 상태·역할·온보딩 시 고정 위치.
 - `email_password_credentials`: 계정 UUID PK/FK, 이메일·정규화 조회키·비밀번호 해시. 공급자 인증 모델은 사용하지 않는다.
@@ -69,10 +70,12 @@ flowchart LR
 - `places`, `place_categories`: 내부 핀과 고정 8종 분류.
 - `memories`: 필수 연속 4축, 장소 스냅샷, 분류 출처·실행 상태, 공개 범위·기원·안전 상태·독립 이미지 경로. 사본은 원본 축 bits와 axis version을 보존한다.
 - `memory_categories`: `(memory_id, category_id)` PK, 1~3 슬롯과 `(memory_id, slot_no)` UNIQUE.
-- `daily_selections`: `(user_id, service_date)` PK, 사용자와 취향 버전의 복합 FK, cutoff·claim·lease·상태.
+- `daily_selections`: `(user_id, service_date)` PK, 사용자와 취향 버전의 복합 FK, cutoff·claim·lease·상태·nullable `double precision fixed_score`를 보존한다. score는 유한 `0..4`, canonical `+0`이며 `atmosphere-v1`의 non-null 역사는 정수만 허용한다.
 - `letter_deliveries`: `(receiver_id, service_date)`와 `(receiver_id, memory_id)`를 각각 UNIQUE로 유지. 최초 read_at·liked_at만 기록한다.
 - `reports`: 사유 코드·details·처리 상태·담당자·처리 시각.
 - `image_uploads`: 본인 소유 STAGED/ATTACHED 이미지와 EXPIRED 영수증. EXPIRED는 receipt·소유자·메타데이터·완료 요청 FK를 보존하되 `storage_path`는 NULL이다.
+- `selection_config_versions`: revision으로 정렬하는 명시적 설정 append 이력. 신뢰된 내부 publisher만 새 행을 추가하며 DB가 UPDATE/DELETE를 거절한다. 운영 기본값·자동 seed·sealed cutoff 이하 backdate는 없다.
+- `selection_cutoff_fence`: `id=1`의 singleton `sealed_through` watermark. 운영 반경·규칙 설정을 저장하지 않으며 publisher와 이후 reader 사이의 같은 transaction cutoff 경계만 제공한다.
 
 UUID ID, smallint 카테고리, `double precision` 4축, `Instant`/timestamptz, `LocalDate`/date, 문자열 enum을 사용한다. 축은 유한 `[-1,1]`이고 `-0`은 Java ingress에서 `+0`으로 정규화한다. FK는 RESTRICT이며 일반 삭제는 소프트 삭제다. `image_storage_binding`은 migration이 만든 dataset UUID를 UNBOUND로 두고, 명시적 초기화 뒤에만 root UUID·실제 DB/schema locator를 기록한다. Reaction·Bookmark·원문-사본 연결 테이블은 없다.
 
@@ -141,6 +144,7 @@ java -Dloader.main=team4.emotionmap.account.AccountProvisioningCli \
 | `V2__erd_uuid_schema.sql` | 구형 테이블을 잠근 뒤 비어 있는지 확인하고 최신 UUID 스키마로 전환 |
 | `V3__seed_place_categories.sql` | 자체 카테고리 8종 seed |
 | `V10__continuous_atmosphere_axes.sql` | 8개 취향·경험 축을 `double precision`으로 전환하고 v2 기본값·v1 endpoint 역사 제약을 추가 |
+| `V11__selection_publication_boundary.sql` | `fixed_score`의 정확한 `smallint`→`double precision` widening, `rule_version` 기본값 제거, config history UPDATE/DELETE guard 및 singleton cutoff fence. 기존 행·상태·규칙을 backfill·재작성하지 않고 운영 설정을 seed하지 않는다 |
 
 **V2는 구형 데이터가 한 건이라도 있으면 실패한다.** 데이터를 삭제하거나 필수 4축·취향·수신 이력을 임의로 채우지 않는다. 별도 빈 개발 DB를 사용하거나 승인된 데이터 이관 설계를 먼저 마련한다. V2의 실패는 전체 트랜잭션을 롤백하므로 구형 테이블을 일부만 제거하지 않는다.
 

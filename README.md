@@ -28,7 +28,7 @@
 | 계정 설정 | 수신 기준 위치 1개와 서비스 고정 반경. 위치·반경은 변경 불가, 분위기 4축은 모두 필수, 자연어 취향은 선택 |
 | 경험 작성 | 네이버 지도 핀, 필수 본문, 선택 JPG/PNG 사진 0~1장. 작성자가 AI 제안을 확인·보완해 4축과 카테고리를 확정 |
 | 분류 | 각 축은 유한 binary64 `[-1, 1]`; `-1/+1`은 endpoint 라벨 anchor이며 0과 중간값도 유효. 자체 장소 카테고리 8종 중 0~3개를 저장하며 미분류도 허용 |
-| 매칭 | 승인된 정책은 `sum(1 - abs(p - m) / 2)`의 4축 동일 가중치(0~4)이나 daily selection 저장형·규칙 전환은 아직 별도 L06 작업이다 |
+| 매칭 | 승인된 정책은 `sum(1 - abs(p - m) / 2)`의 4축 동일 가중치(0~4)다. V11은 `fixed_score` 저장·설정 이력·cutoff publication primitive까지만 구현·실제 Spring/PostgreSQL에서 검증했으며, 계정/경험 producer와 선정 worker·규칙 전환은 아직 별도 L06 작업이다 |
 | 동률 해소 | 승인된 선형 점수에서 정확히 같은 computed binary64 점수의 최고 후보끼리만 선택 자연어 취향으로 비교. 실제 L06 구현/검증 전에는 완료로 주장하지 않음 |
 | 정기 배달 | 매일 **09:00, Asia/Seoul**에 서버가 실행. 미접속이어도 적격 후보가 있으면 1개, 없으면 0개 |
 | 후보·재시도 | 온보딩 이후 적격해진 미수신 LETTER는 다음 날에도 후보로 유지. 본인 글·이미 받은 원문·반경 밖·비공개·숨김·안전 미승인은 제외 |
@@ -61,7 +61,7 @@
 
 ## 데이터 설계 방향
 
-[ERD](./docs/ERD.md)의 **10개 기본 도메인 테이블**에 `image_uploads`와 `image_storage_binding`을 더한 스키마를 사용합니다. 모든 경험·계정 식별자는 UUID이며 카테고리는 고정 smallint, 일부 관계는 복합키입니다.
+10개 기본 도메인 테이블에 선정 설정 이력·cutoff fence와 `image_uploads`, root↔dataset 소유권 앵커 `image_storage_binding`을 더한 스키마를 사용합니다. 모든 경험·계정 식별자는 UUID이며 카테고리는 고정 smallint, 일부 관계는 복합키입니다.
 
 | 책임 | 테이블 |
 | --- | --- |
@@ -70,12 +70,15 @@
 | 장소·경험 | `places`, `memories` |
 | 자체 분류 | `place_categories`, `memory_categories` |
 | 일일 작업·실제 수신 | `daily_selections`, `letter_deliveries` |
+| 선정 설정 이력·cutoff fence | `selection_config_versions`, `selection_cutoff_fence` |
 | 신고·운영 처리 | `reports` |
 | 업로드 소유권·첨부 | `image_uploads` |
 | 이미지 root 소유권 | `image_storage_binding` |
 
 - UUID 식별자와 필수 연속 4축 컬럼을 사용하고, V10부터 새 write는 `axis_definition_version=2`와 유한 `double precision [-1,1]`을 저장합니다. v1 역사 행은 endpoint 값·버전·identity를 재작성하지 않으며 수치상 no-op PATCH도 보존합니다. 취향은 덮어쓰기 대신 불변 버전으로 보존합니다.
 - 일일 작업과 실제 배달을 분리해 후보 없음·실패·성공을 구분합니다. 사용자·날짜별 작업, 날짜별 배달, 같은 원문의 재수신 금지는 각각 별도 제약입니다.
+- V11의 `fixed_score`는 nullable `double precision`이며 유한 `0..4`와 canonical `+0`만 저장합니다. `atmosphere-v1`의 non-null 역사 점수는 정수만 허용하며, migration은 기존 상태·규칙·점수를 추측하거나 재계산하지 않는 정확한 widening만 수행합니다. 새 슬롯에는 `rule_version` SQL 기본값이 없으므로 설정 이력에서 선택한 값을 명시해야 합니다.
+- `selection_config_versions`는 신뢰된 내부 publisher의 명시적 append 이력이다. 초기 운영 설정을 자동으로 seed하거나 과거를 backdate하지 않으며 DB는 UPDATE/DELETE를 거절한다. singleton `selection_cutoff_fence`는 운영 반경·규칙 설정이 아니라 transaction fence 상태다. publisher/나중의 reader는 같은 datasource의 writable READ COMMITTED transaction에서 fence를 다른 업무 행보다 먼저 잠그고, reader는 seal 뒤 다음 statement에서 이력을 읽는다.
 - 좋아요는 `letter_deliveries.liked_at`으로 관리합니다. 별도 Reaction·Bookmark·원문-사본 연결 테이블은 없습니다.
 - 일반 삭제는 소프트 삭제이며 FK는 `RESTRICT`입니다. 원문 삭제가 수신 이력이나 독립 PRIVATE를 함께 삭제하지 않습니다.
 - 자격증명은 계정과 분리하고 신고에는 `details`를 저장합니다. 이미지 업로드의 요청 키는 소유자·경로·UUID 키·요청 지문으로 영속 조정하며 응답 본문을 캐시하지 않습니다. 메모리·신고의 전체 재생 계약은 이 범위에서 완료로 주장하지 않습니다.
@@ -123,7 +126,7 @@
 | 수신·좋아요 | 기존 수신 목록·최초 읽음, 독립 PRIVATE·분류·파일 복사와 일회성 좋아요 |
 | 이미지·신고 | 이미지 단일 multipart·영속 요청 키/영수증 재생, 본인 임시 업로드 첨부, 접근 검사 뒤의 경험 이미지 스트림, 열람 가능한 경험의 C2 신고 접수·불변 OPEN 영수증 재생 |
 
-정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·메모리의 전체 요청 멱등성, 그리고 신고 조회·검토·종결·숨김을 포함한 공개 운영 도구는 아직 완성하지 않았습니다. 신고는 참여자 제출 C2 범위만 구현됐으며, 전체 L09 또는 운영 도구가 완료됐다는 뜻이 아닙니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
+V11은 공유 publication/config-history primitive와 migration만 추가했습니다. 실제 Spring Boot·Hibernate validate·PostgreSQL에서 fence의 같은 트랜잭션 순서, seal 뒤 최소 1µs publication 시각, append-only 설정 이력, `fixed_score` 제약을 검증했습니다. 그러나 계정·경험 producer와 선정 worker/scorer·lease 복구·배달 orchestration은 아직 연결하지 않았고, 설정 publisher는 운영 CLI·관리 HTTP endpoint가 아닙니다. 정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·메모리의 전체 요청 멱등성, 그리고 신고 조회·검토·종결·숨김을 포함한 공개 운영 도구는 아직 완성하지 않았습니다. 신고는 참여자 제출 C2 범위만 구현됐으며, 전체 L09 또는 운영 도구가 완료됐다는 뜻이 아닙니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다. 서비스 설정·고정 사전과 영속 로그인 제한은 별도 구현됐으며 운영 수치는 환경별 승인·주입이 필요합니다.
 
 직접 생성은 명시적 수동 입력만 지원하며 분류 상태는 `NOT_RUN`, 출처는 `USER`입니다. 안전 검사는 `PENDING`, `available_at`은 NULL이므로 새 LETTER를 자동 승인·배달하지 않습니다. 유효성을 확인할 AI 어댑터가 없는 `analysisToken`은 거절합니다.
 
