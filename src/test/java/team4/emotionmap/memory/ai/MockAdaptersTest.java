@@ -11,6 +11,7 @@ import team4.emotionmap.contracts.ai.AnalysisResult;
 import team4.emotionmap.contracts.ai.ModerationRequest;
 import team4.emotionmap.contracts.ai.ModerationVerdict;
 import team4.emotionmap.contracts.ai.TieBreakRequest;
+import team4.emotionmap.contracts.ai.TieBreakResult;
 import team4.emotionmap.contracts.dictionary.PlaceCategoryCode;
 import team4.emotionmap.contracts.fixtures.DictionaryFixtures;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
@@ -74,13 +75,20 @@ class MockAdaptersTest {
     }
 
     @Test
-    void tieBreakReturnsPermutationOrFailure() {
+    void tieBreakReturnsJointFirstPlacePartitionOrFailure() {
         MockPreferenceTieBreakAdapter tie = new MockPreferenceTieBreakAdapter(props);
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
         var candidates = List.of(new TieBreakRequest.Candidate(a, "a"), new TieBreakRequest.Candidate(b, "b"));
-        assertThat(tie.rank(new TieBreakRequest("조용한 곳", candidates, Duration.ofSeconds(5))).rankedMemoryIds())
-                .containsExactly(a, b);
-        assertThat(tie.rank(new TieBreakRequest("[[TIE_FAIL]]", candidates, Duration.ofSeconds(5))).failed()).isTrue();
+
+        var ranked = tie.rank(new TieBreakRequest("조용한 곳", candidates, Duration.ofSeconds(5)));
+        assertThat(ranked.failed()).isFalse();
+        var validation = ranked.validateFor(new TieBreakRequest("조용한 곳", candidates, Duration.ofSeconds(5)));
+        assertThat(validation).isInstanceOf(TieBreakResult.Valid.class);
+        assertThat(((TieBreakResult.Valid) validation).topRankCandidates()).containsExactly(a, b);
+
+        var failed = tie.rank(new TieBreakRequest("[[TIE_FAIL]]", candidates, Duration.ofSeconds(5)));
+        assertThat(failed.validateFor(new TieBreakRequest("[[TIE_FAIL]]", candidates, Duration.ofSeconds(5))))
+                .isInstanceOf(TieBreakResult.Failure.class);
     }
 }
