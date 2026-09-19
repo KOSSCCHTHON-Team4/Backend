@@ -20,6 +20,13 @@ public interface PreferenceHistoryReader {
 
     Optional<PreferenceVersionSnapshot> findAt(UUID userId, Instant cutoff);
 
+    /**
+     * Returns the immutable pinned version only when it belongs to {@code userId}.
+     *
+     * <p>Missing or foreign version IDs remain missing; callers must not substitute the current version.
+     */
+    Optional<PreferenceVersionSnapshot> findVersion(UUID userId, UUID versionId);
+
     /** 현재 최신 버전(프로필 조회용). 온보딩 전이면 empty. */
     Optional<PreferenceVersionSnapshot> findLatest(UUID userId);
 }

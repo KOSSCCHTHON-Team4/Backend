@@ -56,9 +56,9 @@ SELECT pg_temp.assert_rejected($q$INSERT INTO memory_categories(memory_id,catego
 SELECT pg_temp.assert_rejected($q$INSERT INTO memory_categories(memory_id,category_id,slot_no,assignment_source,label_snapshot)
     VALUES ('40000000-0000-4000-8000-000000000001',1,2,'USER','Duplicate category')$q$,'23505');
 
-INSERT INTO daily_selections(user_id,service_date,cutoff_at,preference_version_id,radius_m) VALUES
-    ('10000000-0000-4000-8000-000000000001','2026-09-19','2026-09-19T00:00:00Z','20000000-0000-4000-8000-000000000001',1000),
-    ('10000000-0000-4000-8000-000000000001','2026-09-20','2026-09-20T00:00:00Z','20000000-0000-4000-8000-000000000001',1000);
+INSERT INTO daily_selections(user_id,service_date,cutoff_at,preference_version_id,radius_m,rule_version) VALUES
+    ('10000000-0000-4000-8000-000000000001','2026-09-19','2026-09-19T00:00:00Z','20000000-0000-4000-8000-000000000001',1000,'atmosphere-v1'),
+    ('10000000-0000-4000-8000-000000000001','2026-09-20','2026-09-20T00:00:00Z','20000000-0000-4000-8000-000000000001',1000,'atmosphere-v1');
 SELECT pg_temp.assert_rejected($q$UPDATE daily_selections SET preference_version_id='20000000-0000-4000-8000-000000000002'
     WHERE user_id='10000000-0000-4000-8000-000000000001' AND service_date='2026-09-19'$q$,'23503');
 SELECT pg_temp.assert_rejected($q$UPDATE daily_selections SET cutoff_at='2026-09-19T01:00:00Z'

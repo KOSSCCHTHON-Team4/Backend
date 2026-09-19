@@ -39,6 +39,13 @@ public final class InMemoryPreferenceHistoryReader implements PreferenceHistoryR
     }
 
     @Override
+    public Optional<PreferenceVersionSnapshot> findVersion(UUID userId, UUID versionId) {
+        return versions.getOrDefault(userId, List.of()).stream()
+                .filter(version -> version.versionId().equals(versionId))
+                .findFirst();
+    }
+
+    @Override
     public Optional<PreferenceVersionSnapshot> findLatest(UUID userId) {
         return versions.getOrDefault(userId, List.of()).stream()
                 .max(Comparator.comparingLong(PreferenceVersionSnapshot::revision));
