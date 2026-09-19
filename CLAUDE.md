@@ -28,7 +28,9 @@ The current code contains the UUID persistence cutover and migrated existing cal
 
 ## Architecture
 
-Single Gradle module, feature packages under `team4.emotionmap`: account / memory / place / letter / report / media / catalog / platform / contracts. Each feature owns its Entity, Repository, Service, Controller and DTO.
+Single Gradle module, feature packages under `team4.emotionmap`: account / memory / place / letter / report / media / catalog / notification / platform / contracts. Each feature owns its Entity, Repository, Service, Controller and DTO.
+
+`notification` owns keyword-card taste alerts (`/v1/preferences`, `/v1/notifications`) and the review → place-vibe → cosine/AI matching pipeline (`docs/AI_PIPELINE_IMPLEMENTATION.md`). It is linked to `memory` only through `contracts.events.MemoryPublishedEvent` (published after a LETTER is approved). `memory` owns `POST /v1/memories/analyze`, the analysisToken receipt, LETTER moderation (`LetterModerationService`, DB-state retry) and place profile aggregation (`PlaceProfileService`); `place` owns the Naver category mapping rule.
 
 Every module may depend on `contracts` (shared ports, value objects and errors); `contracts` must not depend on application modules. `catalog` owns `/v1/config`, `/v1/atmosphere-axes` and `/v1/place-categories`.
 

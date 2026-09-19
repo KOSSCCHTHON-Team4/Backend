@@ -98,6 +98,27 @@ app:
     base-url: ${AI_BASE_URL:}
     service-token: ${AI_SERVICE_TOKEN:}
 
+  # ------------------------------------------------------------------------
+  # 기획 "AI 어떻게 활용할까요?" §5~§7 매칭·집계 수치. 비우면 기획 문서의 값이 기본이다.
+  # ------------------------------------------------------------------------
+  matching:
+    radius-meters: ${MATCH_RADIUS_METERS:}                     # 1000
+    fallback-radius-meters: ${MATCH_FALLBACK_RADIUS_METERS:}   # 3000 (기본 반경 안 장소 3개 미만이면)
+    min-places-for-primary-radius: ${MATCH_MIN_PLACES:}        # 3
+    notify-threshold: ${MATCH_NOTIFY_THRESHOLD:}               # 0.85
+    verify-threshold: ${MATCH_VERIFY_THRESHOLD:}               # 0.65
+    similarity-weight: ${MATCH_SIMILARITY_WEIGHT:}             # 0.85
+    distance-weight: ${MATCH_DISTANCE_WEIGHT:}                 # 0.15
+    place-vibe-smoothing: ${MATCH_PLACE_VIBE_SMOOTHING:}       # 2  (P = 평균 × n/(n+2))
+    merge-distance-meters: ${MATCH_MERGE_DISTANCE_METERS:}     # 20 (미등록 장소 병합 반경)
+    category-confidence-threshold: ${MATCH_CATEGORY_CONFIDENCE_THRESHOLD:}   # 0.6
+    reviews-for-verify: ${MATCH_REVIEWS_FOR_VERIFY:}           # 5
+
+  # LETTER 안전 검사(A07) DB 상태 기반 재시도 주기.
+  moderation:
+    retry-delay: ${MODERATION_RETRY_DELAY:PT5M}
+    retry-initial-delay: ${MODERATION_RETRY_INITIAL_DELAY:PT1M}
+
   # CORS는 명시적 origin allowlist만 허용한다. 빈 값은 교차 출처 요청을 허용하지 않는다.
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}

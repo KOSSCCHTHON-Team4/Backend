@@ -33,14 +33,17 @@ class ModuleArchitectureTest {
     private static final String ROOT = "team4.emotionmap";
     private static final String CONTRACTS = "contracts";
     private static final List<String> MODULES =
-            List.of("account", "memory", "place", "letter", "report", "media", "catalog", "platform", CONTRACTS);
+            List.of("account", "memory", "place", "letter", "report", "media", "catalog", "notification", "platform", CONTRACTS);
     // Explicit same-DB contracts used by cross-domain transactions. No wildcard
     // package access: adding a dependency still requires reviewing this boundary.
     private static final Map<String, List<String>> PUBLIC_CONTRACTS = Map.of(
             "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard"),
             "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
                     "media.ImageStorageService", "media.ImageUpload", "media.ImageUploadService", "media.StoredImage",
-                    "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository"),
+                    "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository",
+                    "place.PlaceCategorySource", "place.NaverCategoryMapper"),
+            "notification", List.of("account.User", "account.AccountAccessService",
+                    "place.Place", "place.PlaceRepository", "memory.MemoryRepository"),
             "media", List.of("account.User", "account.UserRepository", "account.AccountAccessService"),
             "letter", List.of("account.AccountAccessService", "account.User", "account.UserRepository",
                     "media.ImageStorageService", "memory.Memory",

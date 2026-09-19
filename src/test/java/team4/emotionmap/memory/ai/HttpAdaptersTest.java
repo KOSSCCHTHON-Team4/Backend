@@ -162,4 +162,75 @@ class HttpAdaptersTest {
         assertThat(r.failed()).isTrue();
         assertThat(r.validateFor(req)).isInstanceOf(TieBreakResult.Failure.class);
     }
+
+    // ---------------------------------------------------------------- 기획 §8 부가 출력 / verify / match-reason
+    @Test
+    void analyzeParsesPlanExtrasAndSendsNaverCategory() {
+        RestClient.Builder b = builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+        server.expect(requestTo("http://localhost:8000/ai/analyze")).andExpect(method(HttpMethod.POST))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath("$.naver_category").value("카페,디저트>카페"))
+                .andRespond(withSuccess("""
+                        {"atmospheres":{"CROWD_LEVEL":-1,"SPATIAL_FEEL":-1,"COMPANY_FIT":-1,"STAY_STYLE":-1},
+                         "categories":["CAFE"],"categoryStatus":"CLASSIFIED","atmosphereStatus":"SUCCEEDED",
+                         "evidence":{"조용한":"사람이 거의 없어서"},"tags":["창가","독서"],
+                         "category_confidence":0.95,"category_source":"naver",
+                         "masked_content":"연락처 [전화번호] 조용한 카페","pii_found":true,"safe":true,"unsafe_reason":null,
+                         "model":"m","promptVersion":"p"}
+                        """, MediaType.APPLICATION_JSON));
+        HttpAnalysisAdapter adapter = new HttpAnalysisAdapter(b.build(), props);
+
+        AnalysisResult r = adapter.analyze(AnalysisRequest.of("연락처 010-1234-5678 조용한 카페", "카페,디저트>카페", Duration.ofSeconds(5)));
+
+        assertThat(r.enrichment().evidence()).containsEntry("조용한", "사람이 거의 없어서");
+        assertThat(r.enrichment().tags()).containsExactly("창가", "독서");
+        assertThat(r.enrichment().categoryConfidence()).isEqualTo(0.95);
+        assertThat(r.enrichment().categorySource()).isEqualTo("naver");
+        assertThat(r.enrichment().piiFound()).isTrue();
+        assertThat(r.enrichment().safe()).isTrue();
+        assertThat(r.enrichment().hasMaskedContent("연락처 010-1234-5678 조용한 카페")).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void verifyMapsFitAndFailsSafe() {
+        RestClient.Builder b = builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+        server.expect(requestTo("http://localhost:8000/ai/verify")).andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("""
+                        {"fit":true,"confidence":0.8,"reason":"혼자 책 읽기 좋다는 리뷰가 있어요.","evidence":["혼자 책"]}
+                        """, MediaType.APPLICATION_JSON));
+        HttpPreferenceVerifyAdapter adapter = new HttpPreferenceVerifyAdapter(b.build());
+        var ok = adapter.verify(new team4.emotionmap.contracts.ai.VerifyRequest("비 오는 날 혼자 책 읽기 좋은 곳", List.of("리뷰1"), Duration.ofSeconds(5)));
+        assertThat(ok.failed()).isFalse();
+        assertThat(ok.fit()).isTrue();
+        assertThat(ok.confidence()).isEqualTo(0.8);
+        assertThat(ok.evidence()).containsExactly("혼자 책");
+
+        RestClient.Builder b2 = builder();
+        MockRestServiceServer down = MockRestServiceServer.bindTo(b2).build();
+        down.expect(requestTo("http://localhost:8000/ai/verify")).andRespond(withServerError());
+        var failed = new HttpPreferenceVerifyAdapter(b2.build())
+                .verify(new team4.emotionmap.contracts.ai.VerifyRequest("취향", List.of("리뷰"), Duration.ofSeconds(5)));
+        assertThat(failed.failed()).isTrue();
+        assertThat(failed.fit()).isFalse();
+    }
+
+    @Test
+    void matchReasonReturnsTextOrUnavailable() {
+        RestClient.Builder b = builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+        server.expect(requestTo("http://localhost:8000/ai/match-reason")).andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{\"reason\":\"조용히 혼자 머물 곳을 찾는 당신에게 딱이에요.\"}", MediaType.APPLICATION_JSON));
+        var ok = new HttpMatchReasonAdapter(b.build()).explain(new team4.emotionmap.contracts.ai.MatchReasonRequest(
+                List.of("조용한", "혼자 가기 좋은"), "골목 카페", List.of("리뷰"), Duration.ofSeconds(5)));
+        assertThat(ok.failed()).isFalse();
+        assertThat(ok.reason()).startsWith("조용히");
+
+        RestClient.Builder b2 = builder();
+        MockRestServiceServer down = MockRestServiceServer.bindTo(b2).build();
+        down.expect(requestTo("http://localhost:8000/ai/match-reason")).andRespond(withServerError());
+        assertThat(new HttpMatchReasonAdapter(b2.build()).explain(new team4.emotionmap.contracts.ai.MatchReasonRequest(
+                List.of("조용한"), null, List.of(), Duration.ofSeconds(5))).failed()).isTrue();
+    }
 }

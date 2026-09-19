@@ -1,6 +1,8 @@
 package team4.emotionmap.memory.dto;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
 import team4.emotionmap.contracts.memory.AxisSource;
@@ -21,7 +23,9 @@ public record MemoryResponse(
         AxisSource crowdSource, AxisSource spatialSource, AxisSource companySource, AxisSource staySource,
         Short axisDefinitionVersion, AtmosphereAnalysisStatus atmosphereAnalysisStatus,
         CategoryAnalysisStatus categoryAnalysisStatus, ContentStatus contentStatus,
-        ModerationStatus moderationStatus, Instant availableAt, Instant createdAt
+        ModerationStatus moderationStatus, Instant availableAt, Instant createdAt,
+        Map<String, String> evidence, List<String> tags, String categoryPred, Double categoryConf,
+        Boolean safe, boolean piiMasked
 ) {
     public static MemoryResponse from(Memory memory) {
         return new MemoryResponse(memory.getId(), memory.getPlaceId(), memory.getContent(),
@@ -32,6 +36,10 @@ public record MemoryResponse(
                 memory.getCrowdSource(), memory.getSpatialSource(), memory.getCompanySource(), memory.getStaySource(),
                 memory.getAxisDefinitionVersion(), memory.getAtmosphereAnalysisStatus(),
                 memory.getCategoryAnalysisStatus(), memory.getContentStatus(), memory.getModerationStatus(),
-                memory.getAvailableAt(), memory.getCreatedAt());
+                memory.getAvailableAt(), memory.getCreatedAt(),
+                memory.getEvidence() == null ? Map.of() : memory.getEvidence(),
+                memory.getTags() == null ? List.of() : memory.getTags(),
+                memory.getCategoryPred(), memory.getCategoryConf(), memory.getSafe(),
+                Boolean.TRUE.equals(memory.getPiiMasked()));
     }
 }

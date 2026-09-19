@@ -23,9 +23,18 @@ public record AnalysisResult(
         CategoryAnalysisStatus categoryStatus,
         AtmosphereAnalysisStatus atmosphereStatus,
         AnalysisProvenance provenance,
-        String failureReason
+        String failureReason,
+        AnalysisEnrichment enrichment
 ) {
+    /** 부가 출력 없는 결과(기존 호출자 호환). */
+    public AnalysisResult(AnalyzedAtmospheres atmospheres, List<PlaceCategoryCode> categories,
+                          CategoryAnalysisStatus categoryStatus, AtmosphereAnalysisStatus atmosphereStatus,
+                          AnalysisProvenance provenance, String failureReason) {
+        this(atmospheres, categories, categoryStatus, atmosphereStatus, provenance, failureReason, null);
+    }
+
     public AnalysisResult {
+        enrichment = enrichment == null ? AnalysisEnrichment.NONE : enrichment;
         Objects.requireNonNull(atmospheres, "atmospheres");
         Objects.requireNonNull(categoryStatus, "categoryStatus");
         Objects.requireNonNull(atmosphereStatus, "atmosphereStatus");
@@ -68,10 +77,21 @@ public record AnalysisResult(
     /** 정상 실행 결과. 상태는 값에서 파생한다. 카테고리 0개는 INSUFFICIENT. */
     public static AnalysisResult of(AnalyzedAtmospheres atmospheres, List<PlaceCategoryCode> categories,
                                     AnalysisProvenance provenance) {
+        return of(atmospheres, categories, provenance, null);
+    }
+
+    /** 정상 실행 결과 + 기획 §8 부가 출력(evidence·tags·마스킹·안전 판정). */
+    public static AnalysisResult of(AnalyzedAtmospheres atmospheres, List<PlaceCategoryCode> categories,
+                                    AnalysisProvenance provenance, AnalysisEnrichment enrichment) {
         List<PlaceCategoryCode> cats = CategorySelection.requireValid(categories);
         return new AnalysisResult(atmospheres, cats,
                 cats.isEmpty() ? CategoryAnalysisStatus.INSUFFICIENT : CategoryAnalysisStatus.SUCCEEDED,
-                statusFor(atmospheres), provenance, null);
+                statusFor(atmospheres), provenance, null, enrichment);
+    }
+
+    public AnalysisResult withEnrichment(AnalysisEnrichment value) {
+        return new AnalysisResult(atmospheres, categories, categoryStatus, atmosphereStatus, provenance,
+                failureReason, value);
     }
 
     public boolean isUpstreamFailure() {

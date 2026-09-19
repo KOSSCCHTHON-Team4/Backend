@@ -115,17 +115,18 @@ AI 서버 실행 + `AI_PROVIDER=http` 로 어댑터를 붙이면 실제 응답�
 
 ---
 
-## 5. 아직 남은 백엔드 작업 (이 연동 밖)
+## 5. 상위 기능 연결 상태 (2026-09-20)
 
-어댑터(포트 구현)는 완료됐지만, 이를 실제로 호출하는 상위 기능은 별도 구현이 필요하다.
+어댑터 위의 기능은 `docs/AI_PIPELINE_IMPLEMENTATION.md` 대로 구현됐다.
 
-- `POST /v1/memories/analyze` 컨트롤러·서비스(A04) + analysisToken 발급/검증 — 현재 엔드포인트 없음.
-- 배달 전 안전 검사·`available_at` 활성화(A07) — moderation 결과를 저장/상태 전이.
-- 일일 선정 스케줄러·4축 점수 매칭·동률 시 tiebreak 호출(B01/B02) — 노션의 코사인 1차/2차 매칭 로직은 여기(BE2)에서 구현.
+- `POST /v1/memories/analyze` + analysisToken 발급/검증(A04) — **구현**. `MemoryAnalysisService`, `AnalysisReceiptCodec`(v2 클레임).
+- `POST /v1/memories` 의 analysisToken 소비·AI/USER 출처 판정·evidence/tags/안전/마스킹 저장 — **구현**.
+- 배달 전 안전 검사·`available_at` 활성화(A07) — **구현**. `LetterModerationService`(생성 직후 + 5분 주기 DB 기반 재시도).
+- 장소 분위기 벡터·카테고리 다수결(기획 §5·§6) — **구현**. `PlaceProfileService`.
+- 카드 취향 설정·코사인 1차/AI 2차 매칭·알림(기획 §4·§7·§9) — **구현**. `notification` 모듈. 새 포트 `PreferenceVerifyPort`(`/ai/verify`), `MatchReasonPort`(`/ai/match-reason`) + HTTP/mock 어댑터.
+- 일일 선정 스케줄러·4축 점수·동률 tiebreak 호출(B01/B02) — 미구현(BE2 범위, 이 파이프라인과 별개).
 
-> 노션 문서의 매칭(코사인 유사도, 1차/2차 판정, 알림 문구)은 백엔드 매칭/스케줄러 담당(BE2) 범위이며, AI 어댑터 연동과는 별개다.
-
----
+> 기획의 실수 벡터(`vibe:[-0.9,...]`)는 채택하지 않았다. 경험은 ±1, 장소 평균은 `평균 × n/(n+2)` 실수다. 상세 차이는 `AI_PIPELINE_IMPLEMENTATION.md` §2.
 
 ## 6. 개발 프롬프트 (다음 작업자용 요약)
 

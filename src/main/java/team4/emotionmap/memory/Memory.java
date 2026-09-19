@@ -9,12 +9,18 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import team4.emotionmap.contracts.dictionary.Atmospheres;
+import team4.emotionmap.contracts.dictionary.VibeVector;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
 import team4.emotionmap.contracts.memory.AxisSource;
 import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
@@ -139,6 +145,61 @@ public class Memory {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    // ---- 기획 §8·§9 분석 부가 출력 (최종 4축은 위 ±1 컬럼이 기준) ----
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, String> evidence;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private List<String> tags;
+
+    @Column(name = "category_pred", columnDefinition = "text")
+    private String categoryPred;
+
+    @Column(name = "category_conf")
+    private Double categoryConf;
+
+    @Column(name = "safe")
+    private Boolean safe;
+
+    @Builder.Default
+    @Column(name = "pii_masked", nullable = false)
+    private Boolean piiMasked = false;
+
+    @Column(name = "unsafe_reason", columnDefinition = "text")
+    private String unsafeReason;
+
+    public Atmospheres atmospheres() {
+        return new Atmospheres(crowdLevel, spatialFeel, companyFit, stayStyle);
+    }
+
+    public VibeVector vibe() {
+        return VibeVector.of(atmospheres());
+    }
+
+    /**
+     * 안전 검사 결과 반영(A07). APPROVED 면 최초 available_at 을 <b>한 번만</b> 정한다 — 재시도·운영 상태 변경으로
+     * 신규 글처럼 갱신하지 않는다. PRIVATE 는 available_at 을 갖지 않는다.
+     */
+    public void applyModeration(ModerationStatus verdict, Instant now) {
+        if (distributionType != DistributionType.LETTER) {
+            throw new IllegalStateException("Only LETTER memories are moderated");
+        }
+        if (verdict == ModerationStatus.NOT_REQUIRED || verdict == ModerationStatus.PENDING) {
+            throw new IllegalArgumentException("Not a final moderation verdict: " + verdict);
+        }
+        this.moderationStatus = verdict;
+        if (verdict == ModerationStatus.APPROVED && availableAt == null) {
+            this.availableAt = now.isBefore(createdAt) ? createdAt : now;
+        }
+    }
+
+    public boolean isDeliverable() {
+        return distributionType == DistributionType.LETTER && contentStatus == ContentStatus.ACTIVE
+                && moderationStatus == ModerationStatus.APPROVED && availableAt != null;
+    }
 
     public void softDelete(Instant deletedAt) {
         this.contentStatus = ContentStatus.DELETED;

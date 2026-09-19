@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import team4.emotionmap.contracts.ai.AiAdapterException;
+import team4.emotionmap.contracts.ai.AnalysisEnrichment;
 import team4.emotionmap.contracts.ai.AnalysisPort;
 import team4.emotionmap.contracts.ai.AnalysisProvenance;
 import team4.emotionmap.contracts.ai.AnalysisRequest;
@@ -53,7 +54,7 @@ public class HttpAnalysisAdapter implements AnalysisPort {
             body = client.post()
                     .uri("/ai/analyze")
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                    .body(Map.of("content", request.content()))
+                    .body(requestBody(request))
                     .retrieve()
                     .body(Map.class);
         } catch (RuntimeException e) {
@@ -77,14 +78,77 @@ public class HttpAnalysisAdapter implements AnalysisPort {
         try {
             AnalyzedAtmospheres atmospheres = atmospheresOf((Map<String, Object>) body.get("atmospheres"));
             List<PlaceCategoryCode> categories = categoriesOf(body.get("categories"));
-            log.info("ai analyze ok durMs={} knownAxes={} categories={}",
-                    durMs(start), atmospheres.knownCount(), categories.size());
-            return AnalysisResult.of(atmospheres, categories, provenance);
+            if (categories.isEmpty()) {
+                // 기획 §8 단일 "category" 필드도 인정한다.
+                PlaceCategoryCode.fromCode(str(body.get("category"))).ifPresent(categories::add);
+            }
+            AnalysisEnrichment enrichment = enrichmentOf(body);
+            log.info("ai analyze ok durMs={} knownAxes={} categories={} pii={} safe={}",
+                    durMs(start), atmospheres.knownCount(), categories.size(),
+                    enrichment.piiFound(), enrichment.safe());
+            return AnalysisResult.of(atmospheres, categories, provenance, enrichment);
         } catch (RuntimeException e) {
             // 형식 불량 응답은 상류 실패로 취급(우리 장애 아님).
             log.warn("ai analyze response mapping failed: {}", e.getClass().getSimpleName());
             return AnalysisResult.failed(provenance, "AI_ANALYZE_BAD_RESPONSE");
         }
+    }
+
+    /** 기획 §8: {@code content} + 선택 {@code naver_category}(null 이면 키 생략). */
+    private static Map<String, Object> requestBody(AnalysisRequest request) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("content", request.content());
+        if (request.naverCategory() != null) {
+            body.put("naver_category", request.naverCategory());
+        }
+        return body;
+    }
+
+    /**
+     * 기획 §8 부가 출력. 없는 키는 null 로 남긴다(추측 금지). snake_case(기획)와 camelCase 둘 다 인정.
+     */
+    @SuppressWarnings("unchecked")
+    static AnalysisEnrichment enrichmentOf(Map<String, Object> body) {
+        Map<String, String> evidence = new java.util.LinkedHashMap<>();
+        if (body.get("evidence") instanceof Map<?, ?> raw) {
+            raw.forEach((k, v) -> {
+                if (k != null && v != null) {
+                    evidence.put(k.toString(), v.toString());
+                }
+            });
+        }
+        List<String> tags = new ArrayList<>();
+        if (body.get("tags") instanceof List<?> list) {
+            for (Object o : list) {
+                String t = str(o);
+                if (t != null && !t.isBlank() && tags.size() < 10) {
+                    tags.add(t.strip());
+                }
+            }
+        }
+        Double confidence = number(first(body, "category_confidence", "categoryConfidence"));
+        if (confidence != null && (confidence < 0 || confidence > 1)) {
+            confidence = null;
+        }
+        String source = str(first(body, "category_source", "categorySource"));
+        String masked = str(first(body, "masked_content", "maskedContent"));
+        Boolean pii = bool(first(body, "pii_found", "piiFound"));
+        Boolean safe = bool(body.get("safe"));
+        String unsafeReason = str(first(body, "unsafe_reason", "unsafeReason"));
+        return new AnalysisEnrichment(evidence, tags, confidence, source, masked, pii, safe, unsafeReason);
+    }
+
+    private static Object first(Map<String, Object> body, String snake, String camel) {
+        Object v = body.get(snake);
+        return v != null ? v : body.get(camel);
+    }
+
+    private static Double number(Object o) {
+        return o instanceof Number n ? n.doubleValue() : null;
+    }
+
+    private static Boolean bool(Object o) {
+        return o instanceof Boolean b ? b : null;
     }
 
     private static AnalyzedAtmospheres atmospheresOf(Map<String, Object> m) {
