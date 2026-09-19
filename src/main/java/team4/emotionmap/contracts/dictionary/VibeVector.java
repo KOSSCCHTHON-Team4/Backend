@@ -1,5 +1,6 @@
 package team4.emotionmap.contracts.dictionary;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.List;
 
 /**
@@ -35,6 +36,9 @@ public record VibeVector(double crowdLevel, double spatialFeel, double companyFi
         return toArray()[axis.order() - 1];
     }
 
+    // JavaBean 관례상 isZero()는 Jackson에 "zero" 프로퍼티로 보여 PlaceResponse.vibe 직렬화에
+    // 의도치 않은 필드를 얹힌다(API_SPEC에 없는 값). 4개 축 성분 외에는 아무것도 내보내지 않는다.
+    @JsonIgnore
     public boolean isZero() {
         return crowdLevel == 0 && spatialFeel == 0 && companyFit == 0 && stayStyle == 0;
     }
