@@ -5,29 +5,31 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
+import team4.emotionmap.contracts.config.ServiceConfigSource;
 
 @Component
 public class JwtTokenProvider {
 
     private final SecretKey key;
-    private final long expirationSeconds;
+    private final ServiceConfigSource serviceConfig;
+    private final Clock clock;
 
-    public JwtTokenProvider(JwtProperties props) {
-        this.key = Keys.hmacShaKeyFor(props.secret().getBytes(StandardCharsets.UTF_8));
-        this.expirationSeconds = props.expirationMillis() / 1000;
-        if (expirationSeconds < 1) {
-            throw new IllegalArgumentException("JWT expiration must be at least one second");
-        }
+    public JwtTokenProvider(JwtProperties properties, ServiceConfigSource serviceConfig, Clock clock) {
+        this.key = Keys.hmacShaKeyFor(properties.secret().getBytes(StandardCharsets.UTF_8));
+        this.serviceConfig = serviceConfig;
+        this.clock = clock;
     }
 
     public IssuedToken createToken(UUID userId) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        long expirationSeconds = serviceConfig.current().auth().accessTokenTtlSeconds();
+        Instant now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         Instant expiry = now.plusSeconds(expirationSeconds);
         String token = Jwts.builder()
                 .subject(userId.toString())
@@ -40,6 +42,7 @@ public class JwtTokenProvider {
 
     public UUID parseUserId(String token) {
         Claims claims = Jwts.parser()
+                .clock(() -> Date.from(clock.instant()))
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)

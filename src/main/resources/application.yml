@@ -77,31 +77,33 @@ app:
       login-lock-seconds: ${SERVICE_AUTH_LOGIN_LOCK_SECONDS:}
 
   # ------------------------------------------------------------------------
-  # 서명값(analysisToken·커서) 키. JWT 비밀과 별도 값. 운영은 SIGNING_SECRET 환경변수로만 주입(커밋 금지).
+  # 서명값(analysisToken·커서) 키. 프로필별로 명시적으로 공급한다.
   # ------------------------------------------------------------------------
   signing:
-    secret: ${SIGNING_SECRET:local-dev-only-change-me-emotionmap-signing-secret-key-0987654321}
+    secret: ${SIGNING_SECRET:}
 
   # ------------------------------------------------------------------------
-  # AI 호출 계약(C09). provider=mock 이면 모델 호출 없이 고정 규칙의 가짜 어댑터를 쓴다.
-  #   실제 provider/모델/프롬프트 버전은 AI 담당과 합의 후 환경변수로 주입한다.
+  # AI 호출 계약(C09). 공통 설정은 provider/model fallback을 제공하지 않는다.
+  # local/ci 프로필만 합성 개발 설정을 제공하며, prod는 실제 구현과 설정이 필요하다.
   # ------------------------------------------------------------------------
   ai:
-    provider: ${AI_PROVIDER:mock}
-    timeout: ${AI_TIMEOUT:PT8S}
-    analysis-model: ${AI_ANALYSIS_MODEL:mock-analysis}
-    analysis-prompt-version: ${AI_ANALYSIS_PROMPT_VERSION:mock-v1}
-    moderation-model: ${AI_MODERATION_MODEL:mock-moderation}
-    moderation-prompt-version: ${AI_MODERATION_PROMPT_VERSION:mock-v1}
+    provider: ${AI_PROVIDER:}
+    timeout: ${AI_TIMEOUT:}
+    analysis-model: ${AI_ANALYSIS_MODEL:}
+    analysis-prompt-version: ${AI_ANALYSIS_PROMPT_VERSION:}
+    moderation-model: ${AI_MODERATION_MODEL:}
+    moderation-prompt-version: ${AI_MODERATION_PROMPT_VERSION:}
+
+  # CORS는 명시적 origin allowlist만 허용한다. 빈 값은 교차 출처 요청을 허용하지 않는다.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
   # ------------------------------------------------------------------------
-  # JWT 설정. /v1/auth/login 을 제외한 업무 API 는 Bearer 토큰이 필요하다.
-  #   * secret 은 절대 커밋 금지. 배포/CI 에서는 JWT_SECRET 환경변수로 주입한다.
-  #   * 아래 기본값은 로컬 개발 전용(길이 충분). 실제 배포에선 반드시 교체한다.
+  # JWT 설정. 만료 시간의 유일 원천은 app.service.auth.access-token-ttl-seconds 이다.
+  # secret은 프로필별로 명시적으로 공급한다.
   # ------------------------------------------------------------------------
   jwt:
-    secret: ${JWT_SECRET:local-dev-only-change-me-emotionmap-jwt-secret-key-1234567890}
-    expiration-millis: ${JWT_EXPIRATION_MILLIS:86400000}   # 24h
+    secret: ${JWT_SECRET:}
 
 # API 문서 (springdoc-openapi). 경로를 명시해 팀원이 쉽게 찾도록 둔다.
 #   Swagger UI : /swagger-ui.html   |   OpenAPI JSON : /v3/api-docs
