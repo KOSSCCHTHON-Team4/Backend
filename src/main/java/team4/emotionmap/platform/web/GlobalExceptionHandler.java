@@ -20,6 +20,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -169,7 +170,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> onTypeMismatch(MethodArgumentTypeMismatchException e, HttpServletRequest request) {
         String name = e.getName() == null ? "request" : e.getName();
         // UUID 경로 변수 형식 오류는 "없는 대상"과 같은 404 로 통일해 존재 여부를 노출하지 않는다.
-        if (e.getRequiredType() == UUID.class) {
+        if (e.getRequiredType() == UUID.class && e.getParameter().hasParameterAnnotation(PathVariable.class)) {
             return writer.toResponse(ErrorCode.RESOURCE_NOT_FOUND, request);
         }
         return writer.toResponse(ContractError.of(ErrorCode.INVALID_REQUEST,

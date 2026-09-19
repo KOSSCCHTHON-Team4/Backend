@@ -34,13 +34,21 @@ class ModuleArchitectureTest {
     private static final String CONTRACTS = "contracts";
     private static final List<String> MODULES =
             List.of("account", "memory", "place", "letter", "report", "media", "catalog", "notification", "platform", CONTRACTS);
+    private static final List<String> COMPOSITION_ROOTS = List.of(
+            ROOT + ".EmotionMapApplication",
+            ROOT + ".ImageStorageActivationCli",
+            ROOT + ".ImageStorageActivationBootstrap");
+    private static final List<String> BOOTSTRAP_CONTRACTS = List.of(
+            "media.ImageRootBinding", "media.ImageFileFence", "media.StorageProperties",
+            "media.ImageUpload", "media.ImageUploadRepository",
+            "memory.Memory", "memory.MemoryRepository", "memory.MemoryImageReferenceReader");
     // Explicit same-DB contracts used by cross-domain transactions. No wildcard
     // package access: adding a dependency still requires reviewing this boundary.
     private static final Map<String, List<String>> PUBLIC_CONTRACTS = Map.of(
             "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard",
                     "platform.security.PasswordHashConfiguration"),
             "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
-                    "media.ImageStorageService", "media.ImageUpload", "media.ImageUploadService", "media.StoredImage",
+                    "media.ImageUpload", "media.ImageUploadService",
                     "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository",
                     "place.PlaceCategorySource", "place.NaverCategoryMapper"),
             "notification", List.of("account.User", "account.AccountAccessService",
@@ -48,7 +56,7 @@ class ModuleArchitectureTest {
             "media", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
                     "platform.web.ApiErrorWriter"),
             "letter", List.of("account.AccountAccessService", "account.User", "account.UserRepository",
-                    "media.ImageStorageService", "memory.Memory",
+                    "memory.Memory",
                     "memory.MemoryAccessService", "memory.MemoryCategory", "memory.MemoryCategoryRepository",
                     "memory.MemoryRepository", "memory.MemoryReadAccess"),
             "report", List.of("account.AccountAccessService", "account.User",
@@ -59,13 +67,32 @@ class ModuleArchitectureTest {
 
     @Test
     void productionClassesBelongToDeclaredModules() {
-        classes().that().doNotHaveFullyQualifiedName(ROOT + ".EmotionMapApplication")
+        classes().that(DescribedPredicate.describe("명시적 조합 진입점이 아닌 클래스",
+                        type -> !isCompositionRoot(type)))
                 .should().resideInAnyPackage(MODULES.stream()
                         .map(module -> ROOT + "." + module + "..")
                         .toArray(String[]::new))
                 .because("애플리케이션 진입점 외의 코드는 소유 모듈에 위치해야 한다")
                 .check(PRODUCTION_CLASSES);
     }
+    @Test
+    void compositionRootsOnlyUseExplicitBootstrapContracts() {
+        classes().that(DescribedPredicate.describe("명시적 조합 진입점", ModuleArchitectureTest::isCompositionRoot))
+                .should().onlyDependOnClassesThat(
+                        resideOutsideOfPackage(ROOT + "..")
+                                .or(resideInAPackage(ROOT + "." + CONTRACTS + ".."))
+                                .or(DescribedPredicate.describe("명시한 bootstrap 계약", type ->
+                                        isCompositionRoot(type) || BOOTSTRAP_CONTRACTS.stream().anyMatch(contract ->
+                                                type.getName().equals(ROOT + "." + contract)
+                                                        || type.getName().startsWith(ROOT + "." + contract + "$")))))
+                .check(PRODUCTION_CLASSES);
+    }
+
+    private static boolean isCompositionRoot(JavaClass type) {
+        return COMPOSITION_ROOTS.stream().anyMatch(name ->
+                type.getName().equals(name) || type.getName().startsWith(name + "$"));
+    }
+
 
     @Test
     void modulesHaveNoDependencyCycles() {

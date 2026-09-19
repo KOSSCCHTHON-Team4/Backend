@@ -2,11 +2,13 @@ package team4.emotionmap.memory;
 
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
+import java.io.IOException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import team4.emotionmap.contracts.memory.DistributionType;
-import team4.emotionmap.media.StoredImage;
 import team4.emotionmap.memory.dto.AnalyzeRequest;
 import team4.emotionmap.memory.dto.AnalyzeResponse;
 import team4.emotionmap.memory.dto.MemoryCreateRequest;
@@ -63,10 +64,22 @@ public class MemoryController {
 
     @GetMapping("/{id}/image")
     public ResponseEntity<Resource> image(@AuthenticationPrincipal UUID userId, @PathVariable UUID id) {
-        StoredImage image = memoryService.image(userId, id);
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .contentType(MediaType.parseMediaType(image.contentType()))
-                .body(new FileSystemResource(image.path()));
+        MemoryService.ImageContent image = memoryService.image(userId, id);
+        try {
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore().cachePrivate())
+                    .contentType(MediaType.parseMediaType(image.mediaType()))
+                    .contentLength(image.sizeBytes())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"image\"")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .body(new InputStreamResource(image.content()));
+        } catch (RuntimeException exception) {
+            try {
+                image.content().close();
+            } catch (IOException ignored) {
+                // Do not attach storage-path-bearing IO details to the outward exception.
+            }
+            throw exception;
+        }
     }
 
     @DeleteMapping("/{id}")

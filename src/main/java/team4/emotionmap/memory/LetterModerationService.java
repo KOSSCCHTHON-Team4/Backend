@@ -1,15 +1,13 @@
 package team4.emotionmap.memory;
 
-import java.awt.image.BufferedImage;
+import java.io.InputStream;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -20,13 +18,14 @@ import team4.emotionmap.contracts.ai.ModerationPort;
 import team4.emotionmap.contracts.ai.ModerationRequest;
 import team4.emotionmap.contracts.ai.ModerationResult;
 import team4.emotionmap.contracts.events.MemoryPublishedEvent;
-import team4.emotionmap.contracts.media.ImageMediaType;
+import team4.emotionmap.contracts.error.ContractError;
+import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.contracts.media.LocalImageStore;
+import team4.emotionmap.contracts.media.StoredImageMeta;
 import team4.emotionmap.contracts.media.SanitizedImage;
 import team4.emotionmap.contracts.memory.ContentStatus;
 import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.contracts.memory.ModerationStatus;
-import team4.emotionmap.media.ImageStorageService;
-import team4.emotionmap.media.StoredImage;
 import team4.emotionmap.memory.ai.AiProperties;
 
 /**
@@ -44,7 +43,7 @@ public class LetterModerationService {
 
     private final MemoryRepository memoryRepository;
     private final ModerationPort moderationPort;
-    private final ImageStorageService imageStorageService;
+    private final LocalImageStore localImageStore;
     private final PlaceProfileService placeProfileService;
     private final ApplicationEventPublisher events;
     private final AiProperties aiProperties;
@@ -115,18 +114,16 @@ public class LetterModerationService {
         if (memory.getImagePath() == null) {
             return null;
         }
-        StoredImage stored = imageStorageService.load(memory.getImagePath());
-        try {
-            byte[] bytes = Files.readAllBytes(stored.path());
-            BufferedImage decoded = ImageIO.read(stored.path().toFile());
-            if (decoded == null) {
-                throw new IllegalStateException("stored image is not decodable");
+        StoredImageMeta metadata = localImageStore.describe(memory.getImagePath())
+                .orElseThrow(() -> ContractError.of(ErrorCode.IMAGE_FILE_UNAVAILABLE));
+        try (InputStream input = localImageStore.open(memory.getImagePath())) {
+            byte[] bytes = input.readAllBytes();
+            if (bytes.length != metadata.sizeBytes()) {
+                throw ContractError.of(ErrorCode.IMAGE_FILE_UNAVAILABLE);
             }
-            ImageMediaType type = ImageMediaType.fromMimeType(stored.contentType())
-                    .orElseThrow(() -> new IllegalStateException("unsupported stored media type"));
-            return new SanitizedImage(bytes, type, decoded.getWidth(), decoded.getHeight());
-        } catch (IOException e) {
-            throw new IllegalStateException("stored image unreadable", e);
+            return new SanitizedImage(bytes, metadata.mediaType(), metadata.width(), metadata.height());
+        } catch (IOException ignored) {
+            throw ContractError.of(ErrorCode.IMAGE_FILE_UNAVAILABLE);
         }
     }
 }

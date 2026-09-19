@@ -27,9 +27,9 @@ import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
+import org.springframework.web.bind.annotation.RequestParam;
 import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
-import team4.emotionmap.media.ImageNotFoundException;
 import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -74,15 +74,21 @@ class GlobalExceptionHandlerTest {
             return "ok";
         }
 
+        @GetMapping("/probe/idempotency")
+        String idempotency(@RequestHeader("Idempotency-Key") UUID key) {
+            return "ok";
+        }
+
+        @GetMapping("/probe/cursor")
+        String cursor(@RequestParam UUID cursor) {
+            return "ok";
+        }
+
         @PostMapping("/probe/preferences")
         String preferences(@RequestBody PreferencesRequest body) {
             return "ok";
         }
 
-        @GetMapping("/probe/image")
-        String image() {
-            throw new ImageNotFoundException("storage path /private/uploads must not leak");
-        }
 
         @GetMapping("/probe/boom")
         String boom() {
@@ -165,14 +171,6 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("IMMUTABLE_FIELD"));
     }
 
-    @Test
-    void annotatedMainExceptionKeepsSafeClientError() throws Exception {
-        MvcResult missing = mvc.perform(get("/probe/image"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
-                .andReturn();
-        assertThat(missing.getResponse().getContentAsString()).doesNotContain("/private/uploads");
-    }
 
     @Test
     void loginExtraFieldIsInvalidRequest_A41() throws Exception {
@@ -231,6 +229,16 @@ class GlobalExceptionHandlerTest {
         mvc.perform(get("/probe/memories/not-a-uuid"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void malformedHeaderAndQueryUuidAreInvalidRequestsRatherThanMissingResources() throws Exception {
+        mvc.perform(get("/probe/idempotency").header("Idempotency-Key", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(get("/probe/cursor").param("cursor", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test

@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -30,7 +31,7 @@ public class ImageUpload {
     @Column(name = "owner_id", nullable = false)
     private UUID ownerId;
 
-    @Column(name = "storage_path", nullable = false, unique = true, columnDefinition = "text")
+    @Column(name = "storage_path", unique = true, columnDefinition = "text")
     private String storagePath;
 
     @Column(name = "media_type", nullable = false, columnDefinition = "text")
@@ -56,12 +57,25 @@ public class ImageUpload {
     @Column(name = "attached_memory_id", unique = true)
     private UUID attachedMemoryId;
 
-    @Builder.Default
     @Column(name = "created_at", nullable = false)
-    private Instant createdAt = Instant.now();
+    private Instant createdAt;
 
     public void attach(UUID memoryId) {
-        this.attachedMemoryId = memoryId;
-        this.status = ImageUploadStatus.ATTACHED;
+        if (memoryId == null || status != ImageUploadStatus.STAGED || storagePath == null) {
+            throw new IllegalStateException("Only a staged upload with storage may be attached");
+        }
+        attachedMemoryId = memoryId;
+        status = ImageUploadStatus.ATTACHED;
+    }
+
+    public boolean expireIfDue(Instant now) {
+        Objects.requireNonNull(now, "now");
+        if (status != ImageUploadStatus.STAGED || attachedMemoryId != null || expiresAt == null
+                || expiresAt.isAfter(now)) {
+            return false;
+        }
+        status = ImageUploadStatus.EXPIRED;
+        storagePath = null;
+        return true;
     }
 }

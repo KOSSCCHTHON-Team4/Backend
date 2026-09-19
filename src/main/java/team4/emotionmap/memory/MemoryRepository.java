@@ -16,6 +16,8 @@ import team4.emotionmap.contracts.memory.ModerationStatus;
 public interface MemoryRepository extends JpaRepository<Memory, UUID> {
     List<Memory> findByOwnerIdAndContentStatusOrderByCreatedAtDesc(UUID ownerId, ContentStatus contentStatus);
     List<Memory> findByPlaceIdAndContentStatusOrderByCreatedAtDesc(UUID placeId, ContentStatus contentStatus);
+    boolean existsByImagePath(String imagePath);
+    boolean existsByImagePathIsNotNull();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Memory m where m.id = :id")

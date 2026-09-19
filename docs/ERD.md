@@ -5,7 +5,7 @@
 - 목적: 기획서 11장의 논리 모델을 FE·BE·AI 공통 계약에 사용할 관계·키·컬럼·제약·트랜잭션으로 구체화
 - 범위: PostgreSQL 기반, 5인·19시간 핵심 MVP. PUBLIC·댓글은 후순위이며 현재 DDL에는 구현하지 않음
 - 상태: **제품 정책 유지 / 이 문서의 물리 모델과 내부 명칭은 구현 제안**
-- 검증 범위: 원문·문서·DDL의 정적 점검과 점수·슬롯 산술 점검, 전용 PostgreSQL의 실제 V1~V7 적용·Hibernate 검증·제약 회귀·두 연결의 SQL 조정 실험을 수행했다. 이 스키마 후보로 애플리케이션 처리자·파일·API·배달 작업의 통합 동작까지 검증한 것은 아니다(§10).
+- 검증 범위: 초기 설계 단계의 원문·문서·DDL 정적 점검과 점수·슬롯 산술 점검, 이후 전용 PostgreSQL에서의 V1~V7 적용·Hibernate·제약 회귀·두 연결 SQL 조정 실험을 구분해 기록한다. V9 이미지 수명 경계가 전체 애플리케이션·파일·API·배달 작업의 통합 완료를 뜻하지는 않는다(§10).
 
 > 이 설계는 운영 DB를 변경하지 않는다. 초기 설계용 `docs/sql/`은 PostgreSQL 16+ 문법의 참고 초안이다. 실제 PostgreSQL 17 적용 파일은 `src/main/resources/db/migration/`이며 초기 초안을 기존 Flyway 이력 위에 중복 실행하지 않는다. 구현·검증 범위는 §10에서 구분한다.
 
@@ -43,7 +43,7 @@
 | 수신 | `letter_deliveries` | 실제 받은 LETTER·읽음·한 번의 좋아요 |
 | 운영 | `reports` | 신고·검토·처리 담당자와 결과 |
 
-기본 도메인 10개 외에 `image_uploads`와 아래 §4.12의 운영 조정 테이블 3개가 실제 Flyway 스키마에 존재한다. 운영 테이블 생성만으로 로그인 제한·중복 요청 처리·설정 게시 서비스가 구현된 것은 아니다.
+기본 도메인 10개 외에 `image_uploads`, 아래 §4.12의 운영 조정 테이블 3개, V9의 singleton `image_storage_binding`이 실제 Flyway 스키마에 존재한다. 이 테이블이 있다고 로그인 제한·모든 중복 요청 처리·설정 게시·전체 복구가 구현됐다는 뜻은 아니다.
 
 ### 1.2 기획서의 논리 모델을 그대로 테이블 하나씩으로 옮기지 않은 이유
 
@@ -57,7 +57,7 @@
 
 **장소와 경험의 위치 스냅샷을 분리한다.** `places`는 내부 핀을 묶는 식별자이며, 경험에 복사된 좌표·표시명은 그 기록을 읽고 거리를 판정하는 기준이다. 공유 Place ID는 원문 연결이 아니지만 Place 변경이 과거 사본의 표시를 바꾸게 하지는 않는다.
 
-**여러 편지함·인증 공급자 확장·PUBLIC·임베딩용 테이블은 선제 구현하지 않는다.** 로그인은 이메일·비밀번호 전용이다. API_SPEC의 최신 인증 보완안을 반영해 공급자 식별자 모델 대신 `email_password_credentials`를 사용한다. 임시 이미지 소유권·첨부 상태는 별도 `image_uploads` 보완 테이블로 관리하며 기본 도메인 10개와 구분한다.
+**여러 편지함·인증 공급자 확장·PUBLIC·임베딩용 테이블은 선제 구현하지 않는다.** 로그인은 이메일·비밀번호 전용이다. API_SPEC의 최신 인증 보완안을 반영해 공급자 식별자 모델 대신 `email_password_credentials`를 사용한다. 임시 이미지 소유권·첨부 상태는 `image_uploads`, root가 어느 dataset에 속하는지는 별도 singleton `image_storage_binding`으로 관리한다. 어느 쪽도 원문-사본 연결이 아니다.
 
 ## 2. ERD와 관계
 
@@ -447,23 +447,21 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 
 **신고:** OPEN → IN_REVIEW → RESOLVED / DISMISSED. 처리자와 종결 시각을 남긴다. 처리자가 실제 OPERATOR인지와 조치 가능한 범위는 서비스 인가에서 검사한다.
 
-### 4.12 영속 요청 조정과 선정 설정 이력
+### 4.12 영속 요청 조정·선정 설정·이미지 수명
 
-`V5__persistent_request_coordination.sql`과 `V6__selection_config_history.sql`이 다음 저장 계약을 추가한다. 기존 도메인 테이블과 `image_uploads`의 이력은 변경하지 않는다.
+`V5__persistent_request_coordination.sql`, `V6__selection_config_history.sql`, `V9__image_storage_lifecycle.sql`이 다음 저장 계약을 추가한다. V9은 파일시스템을 변경하거나 기존 root를 채택하지 않는다.
 
 | 테이블 | 식별자·주요 필드 | 저장 불변식 |
 |---|---|---|
 | `login_attempt_limits` | `email_key_hash` PK, `window_started_at`, `failure_count`, `locked_until`, `updated_at` | 키는 소문자 64자리 SHA-256 hex다. 실패 수는 음수가 아니며, 0이면 창 시작·잠금 시각이 모두 NULL이고 양수이면 창 시작 시각이 필요하다. |
-| `api_idempotency_records` | `(actor_id, request_method, request_path, idempotency_key)` PK, 지문 버전·32바이트 지문, 상태, `claim_token`, `lease_expires_at`, 양수 `attempt_count`, 생성·완료 시각, 결과 FK | POST `/v1/memories`, `/v1/images`, `/v1/reports`만 저장한다. 좋아요 경로는 포함하지 않는다. 서로 다른 사용자·경로는 같은 UUID 키를 독립적으로 사용할 수 있다. |
+| `api_idempotency_records` | `(actor_id, request_method, request_path, idempotency_key)` PK, 지문 버전·32바이트 지문, 상태, `claim_token`, `lease_expires_at`, 양수 `attempt_count`, 생성·완료 시각, 결과 FK | 이미지 업로드는 이 행으로 durable key/재생 영수증을 조정한다. 응답 본문·storage key·원문/사본 ID 쌍은 저장하지 않으며, 메모리·신고의 전체 재생 계약 완료를 여기서 주장하지 않는다. |
 | `selection_config_versions` | 자동 생성 BIGINT `revision` PK, 고유 `config_version`, `effective_at`, 양수 `nearby_radius_meters`, `rule_version` | 설정·규칙 버전은 공백 문자열일 수 없다. 유효 시각·revision 내림차순 인덱스를 두며 운영 기본값이나 초기 설정 행을 임의로 넣지 않는다. |
+| `image_uploads` | UUID, owner, nullable UNIQUE `storage_path`, 메타데이터, status, `expires_at`, nullable UNIQUE `attached_memory_id` | STAGED/ATTACHED는 비어 있지 않은 key가 필요하다. EXPIRED는 `storage_path=NULL`이지만 owner·UUID·메타데이터·만료 시각·완료 요청 FK 영수증을 보존한다. |
+| `image_storage_binding` | singleton PK, migration 생성 `dataset_id`, nullable `root_id`, DB/server/schema locator | UNBOUND는 root·locator가 모두 NULL이다. BOUND는 모두 존재한다. migration은 dataset UUID만 만들며 root를 claim하지 않는다. |
 
-로그인 제한 키는 기존 `EmailPasswordCredential.normalizeEmailLookupKey`로 정규화한 이메일에 `"emotionmap:login-attempt:v1:"`를 붙인 UTF-8 바이트의 전체 SHA-256을 소문자 hex로 표현한다. 향후 로그인과 내부 자격증명 공급은 같은 계정 소유 도출 함수를 사용해야 한다. 알 수 없는 이메일도 제한 대상이므로 사용자 FK와 이메일 원문 컬럼을 두지 않는다. 이는 가명화이지 익명화·사전 공격 방어 보장은 아니며, 별도 비밀키나 보존 정책이 확정되었다는 뜻도 아니다.
+`image_storage_binding`의 BOUND root는 marker의 dataset/root UUID와 **실제 연결에서 관찰한** DB 이름·OID·server address/port·schema 이름·OID가 모두 일치해야 한다. 이름이나 copied dataset UUID만으로 clone을 허용하지 않는다. protected read, 새 파일, expiry, GC 모두 이 경계를 통과해야 하며, HIDDEN/DELETED memory의 참조도 수거에서 보호한다. marker/locator까지 같은 in-place physical restore는 이 작은 프로토콜만으로 구별할 수 없으므로 백업·복구의 DB/filesystem 연관성은 운영자가 별도 승인해야 한다.
 
-중복 요청의 `PROCESSING`에는 선점 토큰·lease 만료 시각이 필요하고 완료 시각·결과 FK는 없어야 한다. `COMPLETED`에는 토큰·lease가 없어야 하며 완료 시각과 요청 경로에 맞는 결과 FK **정확히 하나**가 필요하다. 사용자·메모리·업로드·신고 FK는 RESTRICT다. 응답 본문·원문/사본 ID 쌍·재생 응답 캐시를 저장하지 않으며, 완료 레코드의 임의 만료 기간도 추가하지 않는다. 실행 중 lease에만 부분 인덱스를 둔다.
-
-선정 설정은 별도 게시 계약에서 불변 이력으로 운영하고, 기준 시각 이하의 최신 `effective_at`과 같은 시각의 최신 `revision`을 읽는다. 현재 DDL은 게시 서비스·발행 장벽·불변 갱신 방지 트리거를 구현하지 않는다. SQL 행 잠금과 토큰 조건으로 선점 경쟁·stale finalization 방지가 가능한 것을 확인했어도, 애플리케이션의 로그인 제한·idempotency·스케줄러 구현 및 통합 검증과는 구분한다.
-
-`V7__align_category_definitions.sql`은 기존 8종 사전의 `definition`만 현행 `PlaceCategoryCode` 설명과 맞춘다. ID·코드·라벨·정렬 순서·taxonomy version은 유지하며 새로운 분류 체계나 AI 품질 승인을 의미하지 않는다.
+EXPIRED 전환은 due STAGED를 lock하고 미첨부·memory 무참조를 확인한 뒤 key만 해제하는 DB commit이다. 파일 삭제는 후속 새 transaction에서 binding과 writer/collector fence를 얻고 모든 upload·memory 참조가 없음을 확인할 때만 가능하다. age, legacy 파일명, 새 DB의 빈 참조만으로 삭제·adopt·reset하지 않는다.
 
 ## 5. 무결성 제약
 
@@ -509,7 +507,7 @@ REFERENCES user_preference_versions(id, user_id)
 | 카테고리 0~3·중복 없음 | 슬롯 CHECK·UNIQUE·PK | AI 근거/장소 맥락 확인 |
 | 하루 한 번·원문 재수신 없음 | 두 UNIQUE | 성공 기록 삭제·임의 재생성 금지 |
 | 사본은 PRIVATE | CHECK | 사본 생성은 실제 수신·권한·미실행 확인 후에만 |
-| 이미지 한 장·독립 경로 | 컬럼 구조·메타데이터 동반 NULL·UNIQUE(path) | 파일 내용·형식·실제 독립 복사·정리 |
+| 이미지 한 장·독립 경로·만료 영수증 | `image_uploads`의 상태별 storage_path CHECK·UNIQUE(path) | 파일 내용·형식·실제 독립 복사, binding/fence, EXPIRED 이후의 별도 물리 수거 |
 | DELIVERED와 실제 수신 행의 일치 | FK는 슬롯 존재까지만 | 수신 INSERT와 상태 변경을 같은 트랜잭션으로 확정 |
 | liked_at 한 번 | 날짜 검증만 | 원문·수신 행 잠금 후 NULL일 때만 갱신. 사본 생성과 원자적 확정 |
 | 수신 대상이 LETTER·타인·승인·반경 내 | FK는 경험 존재까지만 | 선정/확정 직전 서비스 검증 |
@@ -651,11 +649,10 @@ LETTER는 안전 승인 전에는 candidate 쿼리에서 제외한다. 첫 승�
 6. category 연결도 새 memory_id로 복사한다. 원문 ID·원작성자·원배달 ID·사본 역참조를 저장하지 않는다.
 7. 같은 트랜잭션에서 liked_at을 한 번 기록하고 커밋한다. 파일 실패·DB 실패 시 성공을 표시하지 않는다. 재시도는 이 기록이 기준이다.
 
-파일과 DB는 자동으로 하나의 원자적 자원이 되지 않는다. 작은 이미지 하나라는 MVP 조건에서는 짧은 잠금 구간 안에 제한된 로컬 복사를 수행하는 안을 우선 제안한다. 파일이 크거나 느리면 별도 복구 설계가 필요하다. 파일 생성 성공 후 DB 롤백·프로세스 중단은 고아 파일을 남길 수 있으므로, 참조되는 image_path와 실제 파일을 비교하는 정리 절차·유예 시간을 둔다. 살아 있는 복사 작업의 파일을 삭제하지 않게 한다.
+파일과 DB는 자동으로 하나의 원자적 자원이 되지 않는다. 쓰기·독립 복사는 DB advisory/OS writer fence 안에서 수행하고, 확실한 rollback만 새 collector에 best-effort 정리를 요청한다. commit 결과 미상·프로세스 중단은 보존한다. 정리는 검증된 binding root에서만 OS collector fence와 DB fence를 얻고 새 READ COMMITTED 조회로 upload와 모든 memory 참조가 없음을 확인할 때만 한다. root binding·marker·locator가 불명확한 legacy/clone/restore 파일은 수거 대상이 아니다.
 
-응답 유실로 DB 커밋 여부를 모르면 파일을 즉시 지우지 않는다. DB 재조회로 확정 상태를 확인한다. 사용자는 BOOKMARK 목록에서 확인하며 원문 API가 사본 ID를 지속적으로 반환할 의무는 없다.
+응답 유실로 DB 커밋 여부를 모르면 파일을 즉시 지우지 않는다. DB 재조회로 확정 상태를 확인한다. 사용자는 BOOKMARK 목록에서 확인하며 원문 API가 사본 ID를 지속적으로 반환할 의무는 없다. 이 규칙은 DB FK로 원문-사본을 연결해 중복을 막는 방식이 아니다. 제한된 서버 쓰기 경로와 liked_at 잠금·트랜잭션이 정확히 한 번의 사본 생성 책임을 가진다.
 
-**중요:** 이 설계는 DB FK로 원문-사본을 연결해 중복을 막는 방식이 아니다. 제한된 서버 쓰기 경로와 liked_at 잠금·트랜잭션이 정확히 한 번의 사본 생성 책임을 가진다.
 
 ## 9. 삭제·권한·외부 처리
 
@@ -696,9 +693,9 @@ app_users의 수신 위치, 과거 preference 버전, 최종 Memory 본문·분�
 | validation/schema_smoke_test.sql | 빈 테스트 DB에서 실행할 제약 회귀 시나리오 |
 | validation/static_validation.json | 이 작업에서 수행한 정적·산술 점검 결과 |
 
-실제 저장소에서는 기존 `V1__init.sql`을 수정하지 않는다. `V2__erd_uuid_schema.sql`은 구형 6개 테이블이 모두 빈 경우에만 UUID 스키마로 전환하며, 데이터가 있으면 예외를 발생시켜 전체 트랜잭션을 중단한다. `V3__seed_place_categories.sql`이 8종 사전을 채운다. 기본 도메인 10개 외에 업로드 소유권·수명을 위한 `image_uploads`를 포함한다. 기존 데이터의 축·취향·배달 이력을 임의로 생성해 이관하지 않는다. ORM은 `ddl-auto: validate`를 유지한다.
+실제 저장소에서는 기존 `V1__init.sql`을 수정하지 않는다. `V2__erd_uuid_schema.sql`은 구형 6개 테이블이 모두 빈 경우에만 UUID 스키마로 전환하며, 데이터가 있으면 예외를 발생시켜 전체 트랜잭션을 중단한다. `V3__seed_place_categories.sql`이 8종 사전을 채운다. `V9__image_storage_lifecycle.sql`은 EXPIRED upload의 `storage_path`만 nullable로 만들고 singleton dataset/root binding 행을 추가한다. 파일시스템·기존 root·legacy 데이터는 바꾸지 않는다. 기존 데이터의 축·취향·배달 이력을 임의로 생성해 이관하지 않으며 ORM은 `ddl-auto: validate`를 유지한다.
 
-실행 스키마의 기준은 `src/main/resources/db/migration/`이다. V4는 기존 카테고리 분석 상태를 canonical 값으로 전환하고, V5는 로그인 제한·중복 요청 조정, V6는 선정 설정 이력, V7은 사전 설명 정합성을 추가한다. 적용된 마이그레이션은 수정하지 않는다. 초기 설계용 `docs/sql/` 파일을 실제 Flyway 이력 위에 중복 적용하지 않는다.
+실행 스키마의 기준은 `src/main/resources/db/migration/`이다. V4는 기존 카테고리 분석 상태를 canonical 값으로 전환하고, V5는 로그인 제한·중복 요청 조정, V6는 선정 설정 이력, V7은 사전 설명 정합성을 추가한다. V8은 별도 후속 migration이며, V9는 이미지 파일 수명과 root↔dataset binding을 추가한다. 적용된 migration은 수정·reset·down 하지 않는다. 초기 설계용 `docs/sql/` 파일을 실제 Flyway 이력 위에 중복 적용하지 않는다.
 
 query_examples는 `:name` 형태의 바인드 파라미터를 사용하는 참고 코드이며 단독 실행 파일이 아니다. 거리 조건은 별도 서버 함수에서 반영하도록 명시했다. 쿼리 예시의 후보 조회만 복사해서 반경 검사를 생략하면 안 된다.
 
@@ -706,7 +703,7 @@ query_examples는 `:name` 형태의 바인드 파라미터를 사용하는 참�
 
 이 문서 작성 중 가능한 모든 4축 조합 16×16의 점수 동치와 범위를 확인하고, 선언된 테이블·FK 대상·핵심 UNIQUE·슬롯 구조·축 라벨·금지된 원문 연결 컬럼 부재를 정적 검사했다. 이는 DB 실행 테스트가 아니다.
 
-초기 설계 단계에서는 실제 PostgreSQL 실행 검증을 하지 못했다. 이후 별도 합성 테스트 DB에서 실제 V1~V7 Flyway 적용·Hibernate 검증과 아래 두 제약 회귀 스크립트를 실행했다. 두 연결의 행 잠금 대기·완료와 takeover 경합·롤백 후 재선점·오래된 토큰의 완료 거절도 SQL 수준에서 확인했다. 이는 아직 없는 애플리케이션 처리자의 동시성 검증을 대신하지 않는다.
+초기 설계 단계에서는 실제 PostgreSQL 실행 검증을 하지 못했다. 이후 별도 합성 테스트 DB에서 실제 V1~V7 Flyway 적용·Hibernate 검증과 아래 두 제약 회귀 스크립트를 실행했다. 두 연결의 행 잠금 대기·완료와 takeover 경합·롤백 후 재선점·오래된 토큰의 완료 거절도 SQL 수준에서 확인했다. 이는 아직 없는 애플리케이션 처리자의 동시성 검증을 대신하지 않는다. V9의 root binding/파일 lifecycle은 이 과거 SQL 근거로 완료를 주장하지 않는다.
 
 ```sh
 # 저장소 루트에서, 실제 Flyway 적용이 끝난 별도 테스트 DB에만 실행한다.
@@ -715,7 +712,7 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f src/test/resources/db/erd_constr
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f src/test/resources/db/coordination_constraints.sql
 ```
 
-제약 회귀와 SQL 조정 실험의 통과는 실제 쿼리 계획·애플리케이션의 동시 좋아요·응답 유실·파일 중단·09:00 경계·자정 지연 응답·미수신 이미지 접근까지 검증했다는 뜻이 아니다. 해당 서비스의 구현 후보에서 별도로 확인한다. 초기 설계용 `validation/schema_smoke_test.sql`을 위 실행 근거와 혼동하지 않는다.
+제약 회귀와 SQL 조정 실험의 통과는 실제 쿼리 계획·애플리케이션의 동시 좋아요·응답 유실·파일 중단·09:00 경계·자정 지연 응답·미수신 이미지 접근까지 검증했다는 뜻이 아니다. V9에서 batch size 2로 directory iterator가 다음 batch로 이동하는 사례는 확인됐지만, 이 문서는 모든 고아 파일의 eventual collection을 입증하지 않는다. 초기 설계용 `validation/schema_smoke_test.sql`을 위 실행 근거와 혼동하지 않는다.
 
 ## 11. 인계 시 남길 계약
 
@@ -756,4 +753,4 @@ https://www.postgresql.org/docs/current/indexes-partial.html
 
 ---
 
-**구현 요약:** 고정 4축은 필수 컬럼, 선호는 불변 버전, 경험은 LETTER/PRIVATE 공통, 카테고리는 0~3개 연결, 일일 작업과 수신은 별도다. 날짜·원문 중복은 UNIQUE, 일회성 보관은 수신 행 잠금과 같은 트랜잭션, 파일은 독립 복사로 구현한다. BOOKMARK·Reaction·원문-사본 연결 테이블은 만들지 않는다. 상태·권한·시간의 동적 검증은 DB 구조만으로 완료되지 않으며 첨부 DDL과 서비스 트랜잭션을 함께 적용한다.
+**구현 요약:** 고정 4축은 필수 컬럼, 선호는 불변 버전, 경험은 LETTER/PRIVATE 공통, 카테고리는 0~3개 연결, 일일 작업과 수신은 별도다. 날짜·원문 중복은 UNIQUE, 일회성 보관은 수신 행 잠금과 같은 트랜잭션, 파일은 독립 복사다. V9은 EXPIRED upload의 nullable key 영수증과 UNBOUND→BOUND root/dataset anchor를 추가했지만, 일반 startup·migration은 root를 claim하지 않는다. BOOKMARK·Reaction·원문-사본 연결·storage key response cache는 만들지 않는다. 상태·권한·파일 fence·시간의 동적 검증은 DB 구조만으로 완료되지 않으며, legacy/restore의 재결합은 별도 승인 절차다.

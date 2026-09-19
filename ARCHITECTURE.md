@@ -30,8 +30,8 @@ Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data
 | `place` | Place, PlaceCategory, 지도 핀·고정 분류 사전 |
 | `letter` | DailySelection, LetterDelivery, 수신·읽음·좋아요 |
 | `report` | Report, 신고 접수·처리 상태 |
-| `media` | ImageUpload, 임시 업로드·로컬 파일 저장·독립 복사 |
-| `platform` | JWT·접근 Guard 계약, JSON 파서, OpenAPI |
+| `media` | ImageUpload, durable image-request receipt, root binding, 임시 업로드·로컬 파일 저장·독립 복사·정리 |
+| `platform` | JWT·접근 Guard 계약, JSON 파서, OpenAPI, 요청 소유권 lease |
 
 ### 2-1. 모듈 경계와 의존성 규칙
 
@@ -61,7 +61,7 @@ flowchart LR
 
 ## 4. 데이터 모델
 
-기본 도메인 10개와 업로드 보완 테이블 1개다.
+기본 도메인 10개와 이미지 수명 보완 테이블 `image_uploads`, root↔dataset 소유권 앵커 `image_storage_binding`이 있다.
 
 - `app_users`: 초대 접근 상태·역할·온보딩 시 고정 위치.
 - `email_password_credentials`: 계정 UUID PK/FK, 이메일·정규화 조회키·비밀번호 해시. 공급자 인증 모델은 사용하지 않는다.
@@ -72,9 +72,9 @@ flowchart LR
 - `daily_selections`: `(user_id, service_date)` PK, 사용자와 취향 버전의 복합 FK, cutoff·claim·lease·상태.
 - `letter_deliveries`: `(receiver_id, service_date)`와 `(receiver_id, memory_id)`를 각각 UNIQUE로 유지. 최초 read_at·liked_at만 기록한다.
 - `reports`: 사유 코드·details·처리 상태·담당자·처리 시각.
-- `image_uploads`: 본인 소유 STAGED 이미지, 만료·ATTACHED 상태와 첨부 대상.
+- `image_uploads`: 본인 소유 STAGED/ATTACHED 이미지와 EXPIRED 영수증. EXPIRED는 receipt·소유자·메타데이터·완료 요청 FK를 보존하되 `storage_path`는 NULL이다.
 
-UUID ID, smallint 축·분류, `Instant`/timestamptz, `LocalDate`/date, 문자열 enum을 사용한다. FK는 RESTRICT이며 일반 삭제는 소프트 삭제다. Reaction·Bookmark·원문-사본 연결 테이블은 없다.
+UUID ID, smallint 축·분류, `Instant`/timestamptz, `LocalDate`/date, 문자열 enum을 사용한다. FK는 RESTRICT이며 일반 삭제는 소프트 삭제다. `image_storage_binding`은 migration이 만든 dataset UUID를 UNBOUND로 두고, 명시적 초기화 뒤에만 root UUID·실제 DB/schema locator를 기록한다. Reaction·Bookmark·원문-사본 연결 테이블은 없다.
 
 ## 5. 프로필 전략
 
@@ -169,14 +169,28 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 
 ## 12. 이미지 처리 (로컬 저장 · JSON/바이너리 API 분리)
 
-1. `POST /v1/images`는 JPG/PNG multipart를 받는 보호 경로다. Security 인증이 성공한 뒤, `REQUEST`에만 등록된 좁은 gate가 본문·파라미터·part를 읽지 않고 서비스 설정과 전송 설정을 검사한다. 무인증 요청은 gate보다 먼저 401이고 CORS preflight는 이 gate의 대상이 아니다.
-2. gate를 통과한 요청만 servlet multipart parser로 들어간다. 파일 한도 `B`는 `ServiceConfigSource.current().limits().imageMaxBytes()`이고, 요청 한도는 파일 외 오버헤드 `H`를 더한 `B + H`다. `H`는 배포 시 양수 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`로 명시하며, 덧셈은 오버플로 없이 확인한다.
-3. 서비스는 현재 ACTIVE 소유자를 잠근 뒤 실제 입력을 최대 `B + 1`바이트까지 읽고, 실제 JPEG/PNG·바이트·폭·높이·픽셀을 검사하여 재인코딩한다. 그 결과만 UUID 파일명으로 저장하고 본인 소유 STAGED 메타데이터와 같은 `Instant` 기준 만료 시각을 기록해 `imageId`를 반환한다.
-4. `POST /v1/memories`에서 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 검사한 뒤 바이너리를 반환한다. 원본 key 기반 공개 GET은 없다.
+1. `POST /v1/images`는 JPG/PNG multipart의 보호 경로다. 인증과 transport gate를 지난 뒤 query가 없고 file part가 정확히 하나이며 UUID `Idempotency-Key`가 정확히 하나인 요청만 받는다. 원본 바이트의 SHA-256 지문과 소유자·경로·키를 영속 요청 행으로 조정한다. 첫 완료는 `201`, 같은 완료 요청의 영수증 재생은 `200`이며 응답 본문을 저장하지 않는다.
+2. 새 요청은 현재 ACTIVE 소유자를 확인하고 실제 입력을 최대 `B + 1`바이트까지 읽어 JPEG/PNG·바이트·폭·높이·픽셀을 검사·재인코딩한다. 새 UUID 키 파일과 STAGED 메타데이터를 같은 완료 경계에서 만든다. 재생은 파일을 다시 열거나 현재 이미지 제한/TTL을 다시 적용하지 않는다: 미만료 STAGED와 ATTACHED는 영수증을 반환하고, 만료 STAGED/EXPIRED는 `410 IMAGE_UPLOAD_EXPIRED`다.
+3. `POST /v1/memories`는 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 확인한 뒤 caller-closed 바이너리 stream을 연다. raw key 공개 GET은 없고, binding/marker/실제 locator 검증을 통과하지 못한 root는 read도 `503 IMAGE_FILE_UNAVAILABLE`로 닫는다.
+4. 만료 worker는 STAGED 행을 잠그고 만료·미첨부·무참조를 확인한 뒤 `EXPIRED`와 nullable `storage_path=NULL` 영수증을 먼저 커밋한다. 물리 파일은 이후 새 READ COMMITTED collector가 root binding, DB advisory fence, OS writer/collector fence 및 `image_uploads`·ACTIVE/HIDDEN/DELETED memory의 모든 참조 부재를 다시 확인할 때만 지운다. age는 삭제 근거가 아니다.
 
-설정: `app.storage`에는 로컬 루트 `upload-dir`과 nullable `multipart-request-overhead-bytes`만 둔다. 이미지 업무 한도와 STAGED TTL은 `app.service.limits`가 유일한 원천이며 storage 기본값으로 대체하지 않는다. `H`가 없거나 비양수이거나 `B + H`가 넘치면 앱은 기동하되 신규 이미지 업로드만 `CONFIGURATION_UNAVAILABLE`(503)으로 닫고, 서비스 설정이 정상인 `/v1/config`는 계속 제공한다. 서비스 설정 자체가 없으면 업로드와 `/v1/config` 모두 503이다. multipart 임시 위치와 file-size threshold를 설정한 경우에는 Spring의 기술 설정을 보존한다.
+설정: `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`는 양수 multipart 오버헤드이고, 이미지 업무 한도·STAGED TTL은 `app.service.limits`가 유일한 원천이다. `REQUEST_COORDINATION_LEASE_DURATION`은 양수 ISO-8601 `Duration`, `IMAGE_CLEANUP_INTERVAL`은 양수 ISO-8601 `Duration`, `IMAGE_CLEANUP_BATCH_SIZE`는 양의 정수다. 세 값에는 운영 기본값이 없다. lease가 없거나 무효면 새 request claim/recovery가 닫히며, interval 또는 batch가 없거나 무효면 새 이미지 파일 쓰기와 정리가 `CONFIGURATION_UNAVAILABLE`로 닫힌다. 기존 binding된 파일 read와 완료 영수증은 해당 설정을 다시 읽어 부정하지 않는다.
 
-저장 중 알려진 I/O 실패는 경로·원인 예외 없이 `IMAGE_STORAGE_UNAVAILABLE`(503)으로 번역한다. 저장 또는 독립 복사 중 부분적으로 만든 파일과 확실한 트랜잭션 롤백의 파일만 정리하며, 커밋 또는 결과 미상 파일은 보존한다. 기존 이미지의 읽기·독립 복사·저장된 만료 시각 기반 첨부 판정은 신규 업로드 설정을 다시 읽지 않는다. 프로세스 중단 고아 파일·만료 이미지의 주기적 정리와 운영 보존 정책은 별도 작업이다.
+정리는 batch만큼의 UUID 키를 한 번에 순회한다. directory iterator는 batch 사이에 유지하고 끝에서만 다시 시작하므로, batch size 2의 순환 사례에서는 처음 항목만 반복해 뒤 항목이 굶는 문제를 피한다. 이는 그 batch 회전 사례의 근거일 뿐 모든 고아 파일이 결국 수거된다는 운영 진행성 증명은 아니다.
+
+일반 startup은 UNBOUND DB에서 root·marker를 생성하거나 legacy 파일을 adopt하지 않는다. 새 빈 dataset과 새 전용 빈 root의 연결만 `storage-init-empty` subcommand가 수행한다:
+
+```bash
+java -jar build/libs/emotion-map-0.0.1-SNAPSHOT.jar storage-init-empty \
+  --root /approved/new-empty-image-root \
+  --expected-dataset-id <v9-dataset-uuid> \
+  --expected-database <database-name> \
+  --expected-schema <schema-name>
+```
+
+CLI는 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SCHEMA`를 명시적으로 요구하고 실제 DB/schema/locator, UNBOUND binding, image upload·memory image 참조 부재, 새 root의 비어 있음을 확인한다. marker는 CREATE_NEW로 기록하며 성공은 `0`, 잘못된 인자·안전 전제 거절은 `2`, DB·파일 의존성 실패는 `1`이다. 기존 root, legacy data, clone/restore를 비우거나 adopt·reset·삭제하지 않는다. clone의 copied dataset UUID만으로는 충분하지 않고 locator 불일치도 거절한다. DB·marker·locator가 bit-for-bit으로 같은 in-place physical restore는 코드가 일반 재시작과 구분할 수 없으므로, 백업 연결성·writer/collector 중지·재결합은 별도 승인 운영 절차다.
+
+저장·독립 복사 중 부분 파일과 확실한 rollback의 파일만 회수 후보가 된다. commit 결과 미상은 보존한다. 원문/사본은 독립 파일이고 source-copy 링크·storage key 로그·GC queue를 추가하지 않는다.
 
 ## 13. API 명세 (springdoc-openapi / Swagger UI)
 

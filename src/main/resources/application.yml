@@ -45,6 +45,12 @@ app:
     # 파일 바이트 외 multipart 오버헤드는 배포 환경에서 양수로 명시한다.
     # 누락·비양수·B+H 오버플로면 신규 이미지 업로드만 CONFIGURATION_UNAVAILABLE(503)으로 닫는다.
     multipart-request-overhead-bytes: ${APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES:}
+    # 신규 파일 생성과 회수에 필요한 운영값. 누락 시 자동 회수와 신규 파일 쓰기를 중단한다.
+    cleanup-interval: ${IMAGE_CLEANUP_INTERVAL:}
+    cleanup-batch-size: ${IMAGE_CLEANUP_BATCH_SIZE:}
+
+  request-coordination:
+    lease-duration: ${REQUEST_COORDINATION_LEASE_DURATION:}
 
   # ------------------------------------------------------------------------
   # 서비스 설정 (A03 GET /config). D03 미정값 — 코드에 기본 숫자를 두지 않는다.

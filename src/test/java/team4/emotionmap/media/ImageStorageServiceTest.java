@@ -7,14 +7,23 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import java.io.FileInputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
@@ -38,38 +47,76 @@ class ImageStorageServiceTest {
 
     @Test
     void storesCopiesAndDeletesOnlyTheIndependentOwnedFileUnderOpaqueKeys() throws Exception {
-        ImageStorageService storage = new ImageStorageService(new StorageProperties(tempDir.toString(), 64L));
-        byte[] bytes = {1, 2, 3, 4};
+        ImageStorageService storage = storageFor(tempDir);
+        byte[] bytes = pngBytes();
 
         StoredImageMeta stored = storage.store(new SanitizedImage(bytes, ImageMediaType.PNG, 2, 2));
-        String copiedKey = storage.copy(stored.storageKey());
+        StoredImageMeta copied = storage.duplicateIndependent(stored.storageKey());
 
         assertThat(stored.storageKey()).matches("[0-9a-fA-F-]{36}\\.png");
-        assertThat(copiedKey).isNotEqualTo(stored.storageKey());
+        assertThat(copied.storageKey()).isNotEqualTo(stored.storageKey());
         assertThat(stored.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(copied.sizeBytes()).isEqualTo(bytes.length);
+        assertThat(copied.width()).isEqualTo(2);
+        assertThat(copied.height()).isEqualTo(2);
         assertThat(Files.readAllBytes(tempDir.resolve(stored.storageKey()))).containsExactly(bytes);
-        assertThat(Files.readAllBytes(tempDir.resolve(copiedKey))).containsExactly(bytes);
+        assertThat(Files.readAllBytes(tempDir.resolve(copied.storageKey()))).containsExactly(bytes);
 
         byte[] changedOriginal = {9, 8};
         Files.write(tempDir.resolve(stored.storageKey()), changedOriginal);
-        assertThat(Files.readAllBytes(tempDir.resolve(copiedKey))).containsExactly(bytes);
+        assertThat(Files.readAllBytes(tempDir.resolve(copied.storageKey()))).containsExactly(bytes);
 
-        storage.delete(copiedKey);
-        assertThat(Files.exists(tempDir.resolve(copiedKey))).isFalse();
+        assertThat(storage.deleteUnreferenced(copied.storageKey())).isTrue();
+        assertThat(Files.exists(tempDir.resolve(copied.storageKey()))).isFalse();
         assertThat(Files.readAllBytes(tempDir.resolve(stored.storageKey()))).containsExactly(changedOriginal);
+    }
+    @Test
+    void managedStorageKeysProgressesAcrossBatchesWithoutDeletingReferencedCandidates() throws Exception {
+        ImageStorageService storage = storageFor(tempDir);
+        byte[] imageBytes = pngBytes();
+        List<String> managedKeys = List.of(
+                "11111111-1111-1111-1111-111111111111.png",
+                "22222222-2222-2222-2222-222222222222.png",
+                "33333333-3333-3333-3333-333333333333.png");
+        for (String managedKey : managedKeys) {
+            Files.write(tempDir.resolve(managedKey), imageBytes);
+        }
+        Path unfamiliar = tempDir.resolve("unfamiliar.bin");
+        byte[] unfamiliarBytes = {4, 5, 6};
+        Files.write(unfamiliar, unfamiliarBytes);
+        Path symlink = tempDir.resolve("44444444-4444-4444-4444-444444444444.png");
+        Files.createSymbolicLink(symlink, Path.of(managedKeys.get(0)));
+
+        List<String> firstBatch = storage.managedStorageKeys(2);
+        List<String> secondBatch = storage.managedStorageKeys(2);
+        Set<String> observed = new HashSet<>(firstBatch);
+        observed.addAll(secondBatch);
+
+        assertThat(firstBatch.size()).isLessThanOrEqualTo(2);
+        assertThat(secondBatch.size()).isLessThanOrEqualTo(2);
+        assertThat(firstBatch).doesNotHaveDuplicates();
+        assertThat(secondBatch).doesNotHaveDuplicates();
+        assertThat(firstBatch).allMatch(managedKeys::contains);
+        assertThat(secondBatch).allMatch(managedKeys::contains);
+        assertThat(observed).containsExactlyInAnyOrderElementsOf(managedKeys);
+        assertThat(observed).doesNotContain(symlink.getFileName().toString());
+        assertThat(managedKeys).allMatch(key -> Files.isRegularFile(tempDir.resolve(key)));
+        assertThat(Files.readAllBytes(unfamiliar)).containsExactly(unfamiliarBytes);
+        assertThat(Files.isSymbolicLink(symlink)).isTrue();
+        assertThat(Files.readAllBytes(symlink)).containsExactly(imageBytes);
     }
 
     @Test
     void lateStoreWriteFailureRemovesOnlyTheNewPartialFile() throws Exception {
-        ImageStorageService storage = new ImageStorageService(new StorageProperties(tempDir.toString(), 64L));
+        ImageStorageService storage = storageFor(tempDir);
         Path unrelated = tempDir.resolve("unrelated.bin");
         byte[] unrelatedBytes = {71, 72, 73};
         Files.write(unrelated, unrelatedBytes);
-        byte[] imageBytes = {1, 2, 3, 4, 5};
+        byte[] imageBytes = pngBytes();
         FailureCapture capture = new FailureCapture();
 
-        try (MockedStatic<Files> files = Mockito.mockStatic(Files.class, Mockito.CALLS_REAL_METHODS)) {
-            installPartialWriteFailure(files, capture);
+        try (MockedStatic<FileChannel> channels = Mockito.mockStatic(FileChannel.class, Mockito.CALLS_REAL_METHODS)) {
+            installPartialWriteFailure(channels, capture);
 
             ContractError error = catchThrowableOfType(ContractError.class,
                     () -> storage.store(new SanitizedImage(imageBytes, ImageMediaType.PNG, 2, 2)));
@@ -84,8 +131,8 @@ class ImageStorageServiceTest {
 
     @Test
     void lateCopyFailureRemovesOnlyTheNewPartialFileAndPreservesSource() throws Exception {
-        ImageStorageService storage = new ImageStorageService(new StorageProperties(tempDir.toString(), 64L));
-        byte[] sourceBytes = {11, 12, 13, 14, 15};
+        ImageStorageService storage = storageFor(tempDir);
+        byte[] sourceBytes = pngBytes();
         StoredImageMeta source = storage.store(new SanitizedImage(sourceBytes, ImageMediaType.PNG, 2, 2));
         Path sourcePath = tempDir.resolve(source.storageKey());
         Path unrelated = tempDir.resolve("unrelated.bin");
@@ -93,11 +140,11 @@ class ImageStorageServiceTest {
         Files.write(unrelated, unrelatedBytes);
         FailureCapture capture = new FailureCapture();
 
-        try (MockedStatic<Files> files = Mockito.mockStatic(Files.class, Mockito.CALLS_REAL_METHODS)) {
-            installPartialWriteFailure(files, capture);
+        try (MockedStatic<FileChannel> channels = Mockito.mockStatic(FileChannel.class, Mockito.CALLS_REAL_METHODS)) {
+            installPartialWriteFailure(channels, capture);
 
-            IllegalStateException error = catchThrowableOfType(IllegalStateException.class,
-                    () -> storage.copy(source.storageKey()));
+            ContractError error = catchThrowableOfType(ContractError.class,
+                    () -> storage.duplicateIndependent(source.storageKey()));
 
             assertSafeOutwardFailure(error, capture);
             assertFailureWasInjected(capture, sourceBytes);
@@ -110,8 +157,8 @@ class ImageStorageServiceTest {
 
     @Test
     void cleanupFailureLeavesOnlyItsPartialFileAndEmitsAPathFreeLogWithoutThrowable() throws Exception {
-        ImageStorageService storage = new ImageStorageService(new StorageProperties(tempDir.toString(), 64L));
-        byte[] sourceBytes = {21, 22, 23, 24, 25};
+        ImageStorageService storage = storageFor(tempDir);
+        byte[] sourceBytes = pngBytes();
         StoredImageMeta source = storage.store(new SanitizedImage(sourceBytes, ImageMediaType.PNG, 2, 2));
         Path sourcePath = tempDir.resolve(source.storageKey());
         Path unrelated = tempDir.resolve("unrelated.bin");
@@ -128,8 +175,10 @@ class ImageStorageServiceTest {
         logger.setAdditive(false);
         logger.addAppender(appender);
         try {
-            try (MockedStatic<Files> files = Mockito.mockStatic(Files.class, Mockito.CALLS_REAL_METHODS)) {
-                installPartialWriteFailure(files, capture);
+            try (MockedStatic<FileChannel> channels =
+                         Mockito.mockStatic(FileChannel.class, Mockito.CALLS_REAL_METHODS);
+                 MockedStatic<Files> files = Mockito.mockStatic(Files.class, Mockito.CALLS_REAL_METHODS)) {
+                installPartialWriteFailure(channels, capture);
                 files.when(() -> Files.deleteIfExists(Mockito.any(Path.class))).thenAnswer(invocation -> {
                     Path candidate = invocation.getArgument(0, Path.class);
                     if (candidate.equals(capture.target)) {
@@ -138,8 +187,8 @@ class ImageStorageServiceTest {
                     return invocation.callRealMethod();
                 });
 
-                IllegalStateException error = catchThrowableOfType(IllegalStateException.class,
-                        () -> storage.copy(source.storageKey()));
+                ContractError error = catchThrowableOfType(ContractError.class,
+                        () -> storage.duplicateIndependent(source.storageKey()));
 
                 assertSafeOutwardFailure(error, capture);
                 assertFailureWasInjected(capture, sourceBytes);
@@ -170,7 +219,7 @@ class ImageStorageServiceTest {
     void storageIoFailureIsPathFreeAndDoesNotExposeCause() throws Exception {
         Path rootFile = tempDir.resolve("not-a-directory");
         Files.write(rootFile, new byte[]{1});
-        ImageStorageService storage = new ImageStorageService(new StorageProperties(rootFile.toString(), 64L));
+        ImageStorageService storage = storageFor(rootFile);
 
         ContractError error = catchThrowableOfType(ContractError.class,
                 () -> storage.store(new SanitizedImage(new byte[]{1}, ImageMediaType.JPEG, 1, 1)));
@@ -181,14 +230,32 @@ class ImageStorageServiceTest {
         assertThat(Arrays.asList(tempDir.toFile().list())).containsExactly("not-a-directory");
     }
 
-    private void installPartialWriteFailure(MockedStatic<Files> files, FailureCapture capture) {
-        files.when(() -> Files.newOutputStream(Mockito.any(Path.class), Mockito.any(OpenOption[].class)))
+    private ImageStorageService storageFor(Path root) {
+        ImageRootBinding rootBinding = Mockito.mock(ImageRootBinding.class);
+        ImageFileFence fence = Mockito.mock(ImageFileFence.class);
+        Mockito.when(rootBinding.requireReadableRoot()).thenReturn(root);
+        Mockito.when(fence.requireWriterProtection()).thenReturn(root);
+        Mockito.when(fence.requireCollectorProtection()).thenReturn(root);
+        StorageProperties properties = new StorageProperties(root.toString(), 64L, Duration.ofMinutes(1), 10);
+        return new ImageStorageService(properties, rootBinding, fence);
+    }
+
+    private void installPartialWriteFailure(MockedStatic<FileChannel> channels, FailureCapture capture) {
+        channels.when(() -> FileChannel.open(Mockito.any(Path.class), Mockito.any(OpenOption[].class)))
                 .thenAnswer(invocation -> {
                     Path target = invocation.getArgument(0, Path.class);
-                    OutputStream delegate = (OutputStream) invocation.callRealMethod();
+                    FileChannel delegate = (FileChannel) invocation.callRealMethod();
+                    boolean createsNew = Arrays.stream(invocation.getArguments(), 1,
+                                    invocation.getArguments().length)
+                            .anyMatch(argument -> argument == StandardOpenOption.CREATE_NEW
+                                    || argument instanceof OpenOption[] options
+                                    && Arrays.asList(options).contains(StandardOpenOption.CREATE_NEW));
+                    if (!createsNew) {
+                        return delegate;
+                    }
                     capture.target = target;
-                    capture.targetCreated = target.toFile().isFile();
-                    return new PartialFailureOutputStream(target, delegate, capture);
+                    capture.targetCreated = Files.isRegularFile(target);
+                    return new PartialFailureFileChannel(delegate, target, capture);
                 });
     }
 
@@ -229,7 +296,7 @@ class ImageStorageServiceTest {
     }
 
     private boolean isSafeCleanupEvent(ILoggingEvent event, FailureCapture capture) {
-        return event.getLevel() == Level.ERROR
+        return event.getLevel() == Level.WARN
                 && event.getFormattedMessage() != null
                 && !event.getFormattedMessage().isBlank()
                 && isSafeText(event.getFormattedMessage(), capture)
@@ -245,6 +312,13 @@ class ImageStorageServiceTest {
         return capture == null || capture.target == null || !value.contains(capture.target.toString());
     }
 
+    private static byte[] pngBytes() throws IOException {
+        BufferedImage image = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        assertThat(ImageIO.write(image, "png", output)).isTrue();
+        return output.toByteArray();
+    }
+
     private static final class FailureCapture {
         private Path target;
         private boolean targetCreated;
@@ -253,51 +327,118 @@ class ImageStorageServiceTest {
         private IOException closeFailure;
     }
 
-    private static final class PartialFailureOutputStream extends OutputStream {
+    private static final class PartialFailureFileChannel extends FileChannel {
+        private final FileChannel delegate;
         private final Path target;
-        private final OutputStream delegate;
         private final FailureCapture capture;
 
-        private PartialFailureOutputStream(Path target, OutputStream delegate, FailureCapture capture) {
-            this.target = target;
+        private PartialFailureFileChannel(FileChannel delegate, Path target, FailureCapture capture) {
             this.delegate = delegate;
+            this.target = target;
             this.capture = capture;
         }
 
         @Override
-        public void write(byte[] bytes, int offset, int length) throws IOException {
-            delegate.write(bytes, offset, Math.min(PARTIAL_BYTES_WRITTEN, length));
-            delegate.flush();
-            capture.partialBytesBeforeFailure = readActualBytes(target);
+        public int read(ByteBuffer destination) throws IOException {
+            return delegate.read(destination);
+        }
+
+        @Override
+        public int read(ByteBuffer destination, long position) throws IOException {
+            return delegate.read(destination, position);
+        }
+
+        @Override
+        public long read(ByteBuffer[] destinations, int offset, int length) throws IOException {
+            return delegate.read(destinations, offset, length);
+        }
+
+        @Override
+        public int write(ByteBuffer source) throws IOException {
+            int amount = Math.min(PARTIAL_BYTES_WRITTEN, source.remaining());
+            ByteBuffer partial = source.duplicate();
+            partial.limit(partial.position() + amount);
+            int written = delegate.write(partial);
+            source.position(source.position() + written);
+            delegate.force(false);
+            capture.partialBytesBeforeFailure = Files.readAllBytes(target);
             capture.writeFailure = new IOException(WRITE_FAILURE_MESSAGE + ":" + target);
             throw capture.writeFailure;
         }
 
         @Override
-        public void write(int value) throws IOException {
-            delegate.write(value);
-            delegate.flush();
-            capture.partialBytesBeforeFailure = readActualBytes(target);
-            capture.writeFailure = new IOException(WRITE_FAILURE_MESSAGE + ":" + target);
-            throw capture.writeFailure;
+        public int write(ByteBuffer source, long position) throws IOException {
+            return delegate.write(source, position);
         }
 
         @Override
-        public void flush() throws IOException {
-            delegate.flush();
+        public long write(ByteBuffer[] sources, int offset, int length) throws IOException {
+            return delegate.write(sources, offset, length);
         }
 
         @Override
-        public void close() throws IOException {
-            delegate.close();
-            capture.closeFailure = new IOException(CLOSE_FAILURE_MESSAGE + ":" + target);
-            throw capture.closeFailure;
+        public long position() throws IOException {
+            return delegate.position();
         }
 
-        private byte[] readActualBytes(Path path) throws IOException {
-            try (FileInputStream input = new FileInputStream(path.toFile())) {
-                return input.readAllBytes();
+        @Override
+        public FileChannel position(long newPosition) throws IOException {
+            delegate.position(newPosition);
+            return this;
+        }
+
+        @Override
+        public long size() throws IOException {
+            return delegate.size();
+        }
+
+        @Override
+        public FileChannel truncate(long size) throws IOException {
+            delegate.truncate(size);
+            return this;
+        }
+
+        @Override
+        public void force(boolean metadata) throws IOException {
+            delegate.force(metadata);
+        }
+
+        @Override
+        public long transferTo(long position, long count, java.nio.channels.WritableByteChannel target)
+                throws IOException {
+            return delegate.transferTo(position, count, target);
+        }
+
+        @Override
+        public long transferFrom(java.nio.channels.ReadableByteChannel source, long position, long count)
+                throws IOException {
+            return delegate.transferFrom(source, position, count);
+        }
+
+        @Override
+        public MappedByteBuffer map(MapMode mode, long position, long size) throws IOException {
+            return delegate.map(mode, position, size);
+        }
+
+        @Override
+        public FileLock lock(long position, long size, boolean shared) throws IOException {
+            return delegate.lock(position, size, shared);
+        }
+
+        @Override
+        public FileLock tryLock(long position, long size, boolean shared) throws IOException {
+            return delegate.tryLock(position, size, shared);
+        }
+
+        @Override
+        protected void implCloseChannel() throws IOException {
+            IOException closeFailure = new IOException(CLOSE_FAILURE_MESSAGE + ":" + target);
+            try {
+                delegate.close();
+            } finally {
+                capture.closeFailure = closeFailure;
             }
+            throw closeFailure;
         }
     }
 }

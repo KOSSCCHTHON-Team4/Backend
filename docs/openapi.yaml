@@ -2,8 +2,7 @@ openapi: 3.1.0
 info:
   title: 감정지도 MVP API 계약 초안
   version: 0.2.0-draft
-  description: '기준: MVP 1.4-final + ERD 1.0 + FE v2 + 사용자 이메일·비밀번호 전용 로그인 확정. 로그인 요청은 email/password 하나만 지원한다. 나머지
-    신규 DTO·저장구조·토큰 TTL·수치 한도는 검토용 계약 초안이다. 예시는 mock이며 서비스 실데이터/설정이 아니다. 참여자용 22개 경로에 /v1 접두어를 적용한다.'
+  description: '기준: MVP 1.4-final + ERD 1.0 + FE v2 + 사용자 이메일·비밀번호 전용 로그인 확정. L03 이미지 업로드·수명주기 primitive와 해당 HTTP 경로만 현재 구현 범위이며, 나머지 신규 DTO·저장구조·토큰 TTL·수치 한도는 검토용 계약 초안이다. 예시는 mock이며 서비스 실데이터/설정이 아니다. 참여자용 22개 경로에 /v1 접두어를 적용한다.'
 servers:
 - url: /
   description: 배포 origin을 설정. paths에 /v1이 포함되어 있으므로 서버 URL에 중복 추가하지 않음
@@ -2290,13 +2289,15 @@ paths:
       summary: JPEG/PNG1장 선행 업로드
       tags:
       - Images
-      description: file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 저장한다. Security 인증 뒤 설정/전송 gate가 multipart parser보다 먼저 실행된다.
-        서비스 설정 또는 양수 multipart 오버헤드가 없으면 CONFIGURATION_UNAVAILABLE(503)이며, 무인증 요청은 먼저401이다. 확실한 롤백의 새 파일만 정리하고 만료 파일의 주기적 정리는 제공하지 않는다.
-      x-contract-status: PROPOSED
+      description: >-
+        file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 저장한다. 최초 성공은201이고, 같은 Idempotency-Key의 완료 재전송은 새 객체를 만들지 않고 최초 ImageUploadResponse 접수증을200으로 반환한다. Security 인증 뒤 설정/전송 gate가 multipart parser보다 먼저 실행된다. 서비스 설정, 양수 multipart 오버헤드, 또는 수명주기 정리에 필요한 필수 설정이 없거나 유효하지 않으면 신규 쓰기는 CONFIGURATION_UNAVAILABLE(503)으로 fail-closed하며, 무인증 요청은 먼저401이고 기존 이미지의 권한 있는 읽기는 계속 가능하다.
+
+        만료 선택은 due STAGED를 PostgreSQL (expires_at, id) bounded keyset continuation으로 처리하므로 참조 때문에 보존한 행이 뒤 후보를 영구히 막지 않는다. continuation은 성공한 tombstone 트랜잭션 뒤에만 전진하고 순회를 소비하면 다시 시작한다. 만료와 첨부는 동일 STAGED 행을 SKIP LOCKED로 조정하고 최종 상태를 재확인한다. STAGED 만료는 EXPIRED와 storage_path=null tombstone을 먼저 커밋한다. 그 뒤의 물리 GC는 모든 상태의 메모리 참조, 저장소 root binding, DB fence와 OS file fence를 다시 확인한 뒤에만 파일을 삭제한다. 이는 모든 임의 orphan의 eventual GC나 같은 locator의 물리 restore 식별을 보장하지 않는다.
+      x-contract-status: IMAGE_UPLOAD_L03_IMPLEMENTED_PRIMITIVE
       x-onboarding-required: true
       responses:
         '201':
-          description: 성공 (최초 생성)
+          description: 최초 성공; STAGED 업로드와 최초 ImageUploadResponse 접수증을 생성
           headers:
             Cache-Control:
               schema:
@@ -2320,7 +2321,7 @@ paths:
                     width: 1280
                     height: 960
         '200':
-          description: 같은 Idempotency-Key의 완료된 요청 재확인. 새 객체를 생성하지 않음
+          description: 같은 Idempotency-Key의 완료된 요청 재확인. 새 객체를 생성하지 않고 최초 ImageUploadResponse 접수증을 그대로 반환
           headers:
             Cache-Control:
               schema:
@@ -2612,7 +2613,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '410':
-          description: IMAGE_UPLOAD_EXPIRED
+          description: STAGED가 expires_at을 지난 경우의 IMAGE_UPLOAD_EXPIRED. 바인딩할 수 없으며 새 업로드가 필요함
           headers:
             Cache-Control:
               schema:
