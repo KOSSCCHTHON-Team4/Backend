@@ -54,5 +54,6 @@ backups/
 application-local-secret.yml
 .env
 .env.*
+!.env.example
 .omp/
 docs/omp-multi-agent/

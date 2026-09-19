@@ -1,0 +1,56 @@
+# Deny every build-context path first. Only the files unignored below may reach
+# the builder; the runtime stage receives only the generated boot JAR.
+**
+
+# Gradle Wrapper and build metadata.
+!gradlew
+!gradle/
+!gradle/wrapper/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!build.gradle.kts
+!settings.gradle.kts
+!lombok.config
+
+# Production compilation inputs only.
+!src/
+!src/main/
+!src/main/java/
+!src/main/java/**
+!src/main/resources/
+!src/main/resources/application.yml
+!src/main/resources/application-prod.yml
+!src/main/resources/db/
+!src/main/resources/db/migration/
+!src/main/resources/db/migration/**
+
+# Keep local/CI profiles and every development seed explicitly outside the
+# otherwise allowlisted resource parents.
+src/main/resources/application-local.yml
+src/main/resources/application-ci.yml
+src/main/resources/db/seed/
+src/main/resources/db/seed/**
+
+# The deny rule above already excludes these paths. Naming them documents that
+# host caches, source-control metadata, tests, data, and secrets are never build
+# inputs.
+.git/
+.env*
+.omp/
+graphify-out/
+**/graphify-out/
+build/
+.gradle/
+docs/
+src/test/
+dummy_data/
+uploads/
+**/uploads/
+pgdata/
+**/pgdata/
+data/
+**/data/
+dumps/
+**/dumps/
+backups/
+**/backups/
