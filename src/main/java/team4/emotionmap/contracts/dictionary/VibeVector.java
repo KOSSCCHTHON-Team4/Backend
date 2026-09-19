@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * 4축 분위기 벡터(기획 §3·§6·§7). 성분 순서는 {@link AtmosphereAxis#ordered()} 와 같고 각 값은 [-1, 1].
- * 경험 한 건은 ±1 정수(저장 규칙), 장소 평균·취향 벡터는 실수다.
+ * 경험·취향의 canonical 축은 모두 연속 binary64 이며, 장소 평균과 코사인 계산은 기존 공식을 그대로 쓴다.
  */
 public record VibeVector(double crowdLevel, double spatialFeel, double companyFit, double stayStyle) {
 

@@ -438,7 +438,7 @@ paths:
       summary: 확정 분위기4축 사전
       tags:
       - Config
-      description: 네 축 코드/라벨/표시 순서를 제공한다. ERD의 코드 상수에서 생성하며 DB 동적 사전 추가 없음.
+      description: 네 축 코드·순서·유한 binary64 범위와 endpoint 라벨 anchor를 제공한다. options는 전체 허용값 목록이 아니며 slider step·중간값 표시·0 라벨을 정하지 않는다.
       x-contract-status: PROPOSED
       x-onboarding-required: false
       responses:
@@ -458,12 +458,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/AtmosphereAxesResponse'
               examples:
-                v1:
+                v2:
                   value:
-                    version: 1
+                    version: 2
                     items:
                     - code: CROWD_LEVEL
                       order: 1
+                      minimum: -1.0
+                      maximum: 1.0
                       options:
                       - value: -1
                         label: 조용한
@@ -471,6 +473,8 @@ paths:
                         label: 북적이는
                     - code: SPATIAL_FEEL
                       order: 2
+                      minimum: -1.0
+                      maximum: 1.0
                       options:
                       - value: -1
                         label: 아늑한
@@ -478,6 +482,8 @@ paths:
                         label: 탁 트인
                     - code: COMPANY_FIT
                       order: 3
+                      minimum: -1.0
+                      maximum: 1.0
                       options:
                       - value: -1
                         label: 혼자 가기 좋은
@@ -485,6 +491,8 @@ paths:
                         label: 함께 가기 좋은
                     - code: STAY_STYLE
                       order: 4
+                      minimum: -1.0
+                      maximum: 1.0
                       options:
                       - value: -1
                         label: 오래 머물기 좋은
@@ -948,7 +956,7 @@ paths:
       summary: 최초 위치·4축 설정
       tags:
       - Users
-      description: 사용자 행을 잠근 뒤 최초 위치와 취향 v1을 함께 저장한다. 같은 최초 요청의 재전송은 변경 없이 200, 다른 값으로 재초기화하면 409다. 09시 이후 완료하면
+      description: 사용자 행을 잠근 뒤 최초 위치와 취향 v2를 함께 저장한다. 같은 최초 요청의 재전송은 변경 없이 200, 다른 값으로 재초기화하면 409다. 09시 이후 완료하면
         다음 정기 배달부터 대상이다.
       x-contract-status: PROPOSED
       x-onboarding-required: false
@@ -1155,7 +1163,7 @@ paths:
                 INVALID_ATMOSPHERES:
                   value:
                     code: INVALID_ATMOSPHERES
-                    message: 분위기 4축을 각각 -1 또는 1로 입력해 주세요
+                    message: 분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
@@ -1430,7 +1438,7 @@ paths:
                 INVALID_ATMOSPHERES:
                   value:
                     code: INVALID_ATMOSPHERES
-                    message: 분위기 4축을 각각 -1 또는 1로 입력해 주세요
+                    message: 분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
@@ -1498,7 +1506,7 @@ paths:
       tags:
       - Memories
       description: 본문만 분석하며 계정 취향으로 빈 축을 채우지 않는다. 유효한 요청의 AI 분석 실패는200+FAILED+null축으로 수동 입력을 지원한다. 서버 자체 장애503와
-        구분. analysisToken은 서버 서명 확인값 제안이며 최종 저장에서 위변조·본문·사용자·만료 검사. 수동 저장은 토큰null로 가능하다.
+        구분. analysisToken은 axisDefinitionVersion=2와 정규화 축 bits를 담는 payload v3 서명 확인값이며, 이전·알 수 없는 token은 422로 거절하고 재분석한다. 수동 저장은 토큰null로 가능하다.
       x-contract-status: PROPOSED
       x-onboarding-required: true
       responses:
@@ -2072,7 +2080,7 @@ paths:
                 INVALID_ATMOSPHERES:
                   value:
                     code: INVALID_ATMOSPHERES
-                    message: 분위기 4축을 각각 -1 또는 1로 입력해 주세요
+                    message: 분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
@@ -3433,7 +3441,7 @@ paths:
                 INVALID_ATMOSPHERES:
                   value:
                     code: INVALID_ATMOSPHERES
-                    message: 분위기 4축을 각각 -1 또는 1로 입력해 주세요
+                    message: 분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
@@ -3454,8 +3462,7 @@ paths:
       - name: atmospheres
         in: query
         required: false
-        description: '반복 파라미터. 예: atmospheres=CROWD_LEVEL:-1&atmospheres=SPATIAL_FEEL:1. 같은 축 양쪽도 허용하되 전체 분위기OR의
-          넓어진 결과를 FE가 표시.'
+        description: '반복 파라미터. 예: atmospheres=CROWD_LEVEL:-1&atmospheres=SPATIAL_FEEL:1. -1은 저장값<=0, 1은 저장값>=0이며 0은 양쪽에 맞는다. 같은 축 양쪽도 허용하되 전체 분위기OR의 넓어진 결과를 FE가 표시.'
         schema:
           type: array
           items:
@@ -5788,62 +5795,62 @@ components:
       type: object
       properties:
         CROWD_LEVEL:
-          type: integer
-          enum:
-          - -1
-          - 1
+          type: number
+          format: double
+          minimum: -1
+          maximum: 1
         SPATIAL_FEEL:
-          type: integer
-          enum:
-          - -1
-          - 1
+          type: number
+          format: double
+          minimum: -1
+          maximum: 1
         COMPANY_FIT:
-          type: integer
-          enum:
-          - -1
-          - 1
+          type: number
+          format: double
+          minimum: -1
+          maximum: 1
         STAY_STYLE:
-          type: integer
-          enum:
-          - -1
-          - 1
+          type: number
+          format: double
+          minimum: -1
+          maximum: 1
       required:
       - CROWD_LEVEL
       - SPATIAL_FEEL
       - COMPANY_FIT
       - STAY_STYLE
       additionalProperties: false
-      description: 최종 설정/경험의 필수 4축. JSON 중복 키와 소수 리터럴 검사는 HTTP 파서에서 별도 수행한다.
+      description: 최종 설정/경험의 필수 4축. 각 값은 유한 binary64 [-1,1]이며 -0은 +0으로 정규화한다. 중복 키·토큰 길이·변환 전 범위는 HTTP 파서에서 검사하고, 서버는 slider step이나 표시 자릿수로 양자화하지 않는다.
     AnalyzedAtmospheres:
       type: object
       properties:
         CROWD_LEVEL:
           anyOf:
-          - type: integer
-            enum:
-            - -1
-            - 1
+          - type: number
+            format: double
+            minimum: -1
+            maximum: 1
           - type: 'null'
         SPATIAL_FEEL:
           anyOf:
-          - type: integer
-            enum:
-            - -1
-            - 1
+          - type: number
+            format: double
+            minimum: -1
+            maximum: 1
           - type: 'null'
         COMPANY_FIT:
           anyOf:
-          - type: integer
-            enum:
-            - -1
-            - 1
+          - type: number
+            format: double
+            minimum: -1
+            maximum: 1
           - type: 'null'
         STAY_STYLE:
           anyOf:
-          - type: integer
-            enum:
-            - -1
-            - 1
+          - type: number
+            format: double
+            minimum: -1
+            maximum: 1
           - type: 'null'
       required:
       - CROWD_LEVEL
@@ -5851,7 +5858,7 @@ components:
       - COMPANY_FIT
       - STAY_STYLE
       additionalProperties: false
-      description: AI 분석 중에만 null 허용. 최종 저장에는 null 불가.
+      description: AI 분석 중에만 각 키의 null(미결)을 허용한다. 0은 알려진 정상 축이고 최종 저장에는 null 불가다.
     CategoryCodes:
       type: array
       items:
@@ -6214,6 +6221,16 @@ components:
           type: integer
           minimum: 1
           maximum: 4
+        minimum:
+          type: number
+          format: double
+          minimum: -1
+          maximum: -1
+        maximum:
+          type: number
+          format: double
+          minimum: 1
+          maximum: 1
         options:
           type: array
           items:
@@ -6223,6 +6240,8 @@ components:
       required:
       - code
       - order
+      - minimum
+      - maximum
       - options
       additionalProperties: false
     AtmosphereAxesResponse:
@@ -6230,7 +6249,7 @@ components:
       properties:
         version:
           type: integer
-          const: 1
+          const: 2
         items:
           type: array
           items:
@@ -6382,7 +6401,7 @@ components:
       - preferenceDescription
       - expectedPreferenceVersion
       additionalProperties: false
-      description: 설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion은 동시 수정 방지 제안. 위치/버전 적용 시각은 요청 불가.
+      description: 설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion은 동시 수정 방지 제안이며 stale revision은 no-op보다 먼저 거절한다. 현재 v1 행의 수치상 같은 요청은 행·revision·effectiveAt·축 버전을 보존하고, 실제 변경은 v2 행을 만든다. 위치/버전 적용 시각은 요청 불가.
     AnalyzeRequest:
       type: object
       properties:
@@ -6435,8 +6454,7 @@ components:
       - expiresAt
       - warnings
       additionalProperties: false
-      description: analysisToken은 서버 서명 확인값 제안. 본문 해시·사용자·AI 제안/실행상태·모델 버전·만료를 검증한다. 실패한 AI 호출도 수동 입력을 위한 200+FAILED로
-        표현 가능. 최종 축 null은 불가.
+      description: analysisToken은 axisDefinitionVersion=2와 정규화 축 bits를 담는 payload v3 서버 서명 확인값이다. 이전·알 수 없는 token은 422로 거절하고 재분석한다. 실패한 AI 호출도 수동 입력을 위한 200+FAILED로 표현 가능하며 최종 축 null은 불가다.
     CreateMemoryRequest:
       type: object
       properties:

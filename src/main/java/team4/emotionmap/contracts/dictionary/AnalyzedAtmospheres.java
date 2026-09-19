@@ -5,28 +5,34 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * AI 분석 결과의 4축(API_SPEC 9장 {@code AnalyzedAtmospheres}). 축 값은 -1/+1 또는 <b>근거 없음 = null</b>.
- * 최종 저장에는 쓸 수 없고 {@link #toComplete()} 로 {@link Atmospheres} 가 될 때만 저장 가능하다.
+ * AI 분석 결과의 4축(API_SPEC 9장 {@code AnalyzedAtmospheres}). {@code null} 만 미결이며, 0 을 포함한
+ * 유한 {@code [-1, 1]} 값은 모두 알려진 정상 값이다. nonnull 값은 signed zero 를 {@code +0.0} 으로
+ * 정규화한다.
+ *
+ * <p>최종 저장에는 쓸 수 없고 {@link #toComplete()} 로 {@link Atmospheres} 가 될 때만 저장 가능하다.
  * 계정 취향·사진으로 null 축을 채우지 않는다(불변 규칙 1).
  */
-public record AnalyzedAtmospheres(Integer crowdLevel, Integer spatialFeel, Integer companyFit, Integer stayStyle) {
+public record AnalyzedAtmospheres(Double crowdLevel, Double spatialFeel, Double companyFit, Double stayStyle) {
 
     public static final AnalyzedAtmospheres ALL_UNKNOWN = new AnalyzedAtmospheres(null, null, null, null);
 
     public AnalyzedAtmospheres {
-        check(crowdLevel);
-        check(spatialFeel);
-        check(companyFit);
-        check(stayStyle);
+        crowdLevel = normalized(crowdLevel);
+        spatialFeel = normalized(spatialFeel);
+        companyFit = normalized(companyFit);
+        stayStyle = normalized(stayStyle);
     }
 
-    private static void check(Integer value) {
-        if (value != null) {
-            AtmosphereAxis.requireValidValue(value);
+    private static Double normalized(Double value) {
+        if (value == null) {
+            return null;
         }
+        double normalized = AtmosphereAxis.requireValidValue(value);
+        return Double.doubleToLongBits(value) == Double.doubleToLongBits(normalized)
+                ? value : Double.valueOf(normalized);
     }
 
-    public Integer get(AtmosphereAxis axis) {
+    public Double get(AtmosphereAxis axis) {
         return switch (axis) {
             case CROWD_LEVEL -> crowdLevel;
             case SPATIAL_FEEL -> spatialFeel;
@@ -35,9 +41,9 @@ public record AnalyzedAtmospheres(Integer crowdLevel, Integer spatialFeel, Integ
         };
     }
 
-    public Map<AtmosphereAxis, Integer> toMap() {
-        Map<AtmosphereAxis, Integer> map = new EnumMap<>(AtmosphereAxis.class);
-        for (AtmosphereAxis axis : AtmosphereAxis.values()) {
+    public Map<AtmosphereAxis, Double> toMap() {
+        Map<AtmosphereAxis, Double> map = new EnumMap<>(AtmosphereAxis.class);
+        for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
             map.put(axis, get(axis));
         }
         return map;
@@ -45,7 +51,7 @@ public record AnalyzedAtmospheres(Integer crowdLevel, Integer spatialFeel, Integ
 
     public int knownCount() {
         int n = 0;
-        for (AtmosphereAxis axis : AtmosphereAxis.values()) {
+        for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
             if (get(axis) != null) {
                 n++;
             }
@@ -54,7 +60,7 @@ public record AnalyzedAtmospheres(Integer crowdLevel, Integer spatialFeel, Integ
     }
 
     public boolean isComplete() {
-        return knownCount() == AtmosphereAxis.values().length;
+        return knownCount() == AtmosphereAxis.ordered().size();
     }
 
     public boolean isEmpty() {

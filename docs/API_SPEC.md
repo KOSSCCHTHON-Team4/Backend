@@ -18,7 +18,7 @@
 
 v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키지의 `AUTH_ERD_DELTA.md`가 ERD 1.0 인증 절보다 우선하는 제안이다. 기존 원본 ERD 파일이나 운영 DB를 수정한 것은 아니다.
 
-**MOCK 숫자 주의:** `/v1/config` 예시의 반경 1000m, 중심 좌표, 토큰 TTL·파일/본문/작성량/페이지 제한은 로컬 mock 구성 예시이다. 실제 운영 수치를 임의 확정하지 않았다. 배달 시간 `09:00`, 시간대 `Asia/Seoul`, 4축의 `-1/+1`, 카테고리 최대 3개는 이미 확정된 정책이다.
+**MOCK 숫자 주의:** `/v1/config` 예시의 반경 1000m, 중심 좌표, 토큰 TTL·파일/본문/작성량/페이지 제한은 로컬 mock 구성 예시이다. 실제 운영 수치를 임의 확정하지 않았다. 배달 시간 `09:00`, 시간대 `Asia/Seoul`, 4축의 유한 binary64 `[-1, 1]`, 카테고리 최대 3개는 이미 확정된 정책이다.
 
 ## 목차
 
@@ -86,7 +86,7 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 
 ### 2.2 JSON·텍스트 검증
 
-4축은 이름이 정확한 네 키이고 각각 숫자 `-1` 또는 `1`이어야 한다. 누락·추가 축·문자열 `"1"`·null·0·0.5·중복 키를 거절한다. **1.0처럼 소수 표기를 거절하려면 JSON 토큰 수준 검사도 필요**하다. OpenAPI 3.1/JSON Schema에서는 수학적으로 1과1.0을 같은 정수로 볼 수 있으므로 YAML 검증만으로 이 요구를 다 검사했다고 하지 않는다. JSON 중복 키 역시 파싱 뒤 객체만으로 복원할 수 없으므로 서버 파서에서 검사한다. [W1]
+4축은 이름이 정확한 네 키이고 각각 유한한 binary64 숫자 `[-1, 1]`이어야 한다. 누락·추가 축·문자열 `"1"`·boolean·객체·배열·중복 키·범위 밖 값·`NaN`/`Infinity`를 거절한다. `-0`은 `+0`으로 정규화하고, 서버는 반올림·clamp·slider step 양자화를 하지 않는다. 범위는 binary64 변환 **전 원래 JSON 숫자 토큰**으로 확인하므로 `1.000000000000000000000001`처럼 1로 반올림될 값도 거절한다. 표준 binary64 underflow로 아주 작은 비영값이 `+0`이 될 수 있다. OpenAPI 3.1/JSON Schema는 중복 키·토큰 길이·변환 전 범위를 모두 표현하지 못하므로 서버 파서가 검사한다. [W1]
 
 본문은 저장·분석·토큰 검증에서 같은 문자열을 사용한다. 본문 원문을 임의로 Unicode 정규화/개행 변경/trim해서 다른 해시로 만들지 않는다. 공백 문자만 있으면 거절한다. 길이는 Unicode 코드 포인트 기준으로 세도록 제안하며 JS `.length`만을 그대로 쓰지 않는다. 자연어 취향과 신고 details는 앞뒤 공백을 제거하고 비었으면 null로 정규화하는 안이다. 최대 길이는 `/v1/config.limits`로 통일한다. 비밀번호는 trim/정규화하지 않는다.
 
@@ -95,7 +95,7 @@ v0.1의 인증 방식 선택지는 폐기한다. 상세 ERD 보완은 이 패키
 ```json
 {
   "code": "INVALID_ATMOSPHERES",
-  "message": "분위기 4축을 각각 -1 또는 1로 입력해 주세요",
+  "message": "분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요",
   "retryAfterSeconds": null,
   "fieldErrors": [{ "field": "atmospheres.STAY_STYLE", "reason": "REQUIRED" }],
   "requestId": "80000000-0000-4000-8000-000000000001"
@@ -174,9 +174,7 @@ Spring Security의 `PasswordEncoder`로 생성·검증하며 기존 해시의 �
 
 `hasOnboarded`는 위치와 최초 취향 버전의 원자적 완료에서 계산한다. 온보딩 전에는 `mailbox`, `atmospheres`, `preferenceVersion`, `preferenceEffectiveAt`가 모두 null이다.
 
-온보딩은 사용자 행을 잠근 뒤 위치와 최초 취향을 함께 저장한다. 정규화한 최초 입력을 그대로 재전송하면 변경 없이 200을 반환하고, 다른 값으로 다시 초기화하면 409다. 동일 여부는 이후 수정할 수 있는 최신 취향이 아니라 **최초 v1 입력**과 비교한다.
-
-취향 PATCH에는 4축·설명 전체와 `expectedPreferenceVersion`을 보낸다. 최신 버전이 다르면 409 후 GET으로 다시 확인하고, 변경에 성공하면 전체 설정을 가진 새 불변 버전을 INSERT한다. 같은 버전·같은 값은 새 버전 없이 200이다. `preferenceVersion`은 DB revision의 10진 문자열이며 내부 버전 UUID와 구분한다.
+온보딩은 사용자 행을 잠근 뒤 위치와 최초 취향을 함께 저장한다. 정규화한 최초 입력을 그대로 재전송하면 변경 없이 200을 반환하고, 다른 값으로 다시 초기화하면 409다. 동일 여부는 이후 수정할 수 있는 최신 취향이 아니라 최초 입력 행과 비교한다. 새 온보딩과 실제 취향 변경이 만드는 행은 `axis_definition_version=2`이며, 현재 v1 행에 수치상 같은 PATCH는 행·revision·effectiveAt·축 버전을 그대로 보존한다. stale `expectedPreferenceVersion`은 같은 payload보다 먼저 409다. 설명만 달라도 새 v2 불변 버전을 INSERT한다.
 
 설명을 null로 보내면 이후 설정에서 설명을 비우지만, 과거 선정에 사용한 버전은 수정하지 않는다. 위치는 변경할 수 없고 적용 시각도 서버가 정한다. 09시 기준 설정과 이미 확정된 날짜의 선정 결과를 소급 교체하지 않는다.
 
@@ -186,9 +184,8 @@ Spring Security의 `PasswordEncoder`로 생성·검증하며 기존 해시의 �
 
 FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신뢰하지 않는다. 이를 위해 **[계약 제안] `analysisToken`**을 추가한다.
 
-서버는 사용자 귀속, 본문 해시, 분석한 4축·카테고리, 실행 상태, 모델·프롬프트·사전 버전, 만료를 서명한 확인값을 반환한다. FE는 이를 해석하지 않고 저장 요청에 그대로 포함한다. 본문이나 식별정보를 확인값에 불필요하게 중복 저장하지 않으며, 이 값을 영구 분석 로그나 원문 연결 키로 저장하지 않는다.
-
-최종 저장에서 서명·로그인 사용자·본문·만료를 확인한다. AI 제안과 같은 최종값은 AI, 사용자가 변경하거나 보완한 값은 USER로 기록한다. token을 생략하거나 null로 보내면 명시적인 수동 저장으로 취급하고 실행 상태는 NOT_RUN, 출처는 USER다. 실패한 AI 시도의 이력을 남기려면 그 실패 응답의 유효한 token을 함께 보낸다.
+서버는 사용자 귀속, 본문 해시, 분석한 4축·카테고리, 실행 상태, 모델·프롬프트·사전 버전, 만료를 payload v3 서명 확인값으로 반환한다. v3은 `axisDefinitionVersion=2`와 정규화한 네 축 binary64 bit를 고정 순서로 담는다. 이전·알 수 없는 payload token은 자동 변환하지 않고 `422 ANALYSIS_TOKEN_INVALID`로 거절하며 다시 분석해야 한다. FE는 이 값을 해석하지 않고 저장 요청에 그대로 포함한다. 본문이나 식별정보를 확인값에 불필요하게 중복 저장하지 않으며, 이 값을 영구 분석 로그나 원문 연결 키로 저장하지 않는다.
+최종 저장에서 서명·로그인 사용자·본문·만료를 확인한다. AI 제안과 정규화 binary64 bit가 같은 최종값은 AI, 사용자가 변경하거나 보완한 값은 USER로 기록한다. token을 생략하거나 null로 보내면 명시적인 수동 저장으로 취급하고 실행 상태는 NOT_RUN, 출처는 USER다. 실패한 AI 시도의 이력을 남기려면 그 실패 응답의 유효한 token을 함께 보낸다. 사본은 원본의 축 값 bits와 축 정의 버전을 보존한다.
 
 **분석 응답의 `categoryStatus`와 최종 경험의 `categoryStatus`는 구분한다.** 전자는 AI가 분류했는지, 후자는 최종 카테고리가 존재하는지다. AI가 실패했어도 작성자가 카페를 직접 고르면 최종 상태는 CLASSIFIED이고, 소유자에게 보이는 AI 이력은 FAILED일 수 있다.
 
@@ -204,6 +201,7 @@ FE가 돌려보낸 값만으로 `AI/USER` 출처나 모델 실행 상태를 신�
 계정 취향·사진·주변 업체 정보로 본문에 없는 분위기를 채우지 않는다. 분석이 실패하면 200 응답에 FAILED와 미결 축을 넣어 수동 보완을 지원한다. 우리 서버 자체 장애나 요청 검증 실패는 별도 503/4xx다. **최종 저장에는 네 축이 모두 필요하며, 안전 검사 실패를 분류 실패처럼 통과시키지 않는다.**
 
 본문을 수정한 뒤 도착한 옛 분석 응답은 FE가 폐기한다. AbortController나 요청 번호로 대응시키고 서버도 token의 본문 해시를 검사한다. 만료되면 다시 분석하거나, token을 null로 바꾸어 수동 확정하는 선택을 사용자에게 명확히 제공한다.
+AI HTTP 연동의 backend-expected wire는 `AX-AI-WIRE-v2`의 flat 응답이다: 요청은 `content`, `axisDefinitionVersion=2`, `taxonomyVersion=1`(선택 `naver_category`), 성공 응답은 네 축 키·카테고리·비어 있지 않은 `model`/`promptVersion`·같은 두 버전을 모두 제공한다. 네 축은 유한 `[-1,1]` 숫자 또는 명시적 null이고, 누락·중복·알 수 없는 축·타입·범위 오류는 전체 응답을 실패로 처리한다. 이는 backend-expected 계약일 뿐 실제 provider 검증이나 AI 품질 증거가 아니며, 수동 생성은 계속 `USER`/`NOT_RUN`이다.
 
 ### 4.2 생성 성공과 배달 성공은 다르다
 
@@ -271,7 +269,7 @@ GET /v1/letters?atmospheres=CROWD_LEVEL%3A-1&atmospheres=STAY_STYLE%3A-1&categor
 
 이는 `(조용한 OR 오래 머물기 좋은) AND (카페 OR 공부·작업 공간)`이다. 쉼표로 묶는 형식과 반복 형식을 동시에 지원하지 않는다. 빈 조건은 `atmospheres=` 대신 파라미터를 생략한다.
 
-조회에서는 같은 축의 양쪽 값을 선택할 수 있다. 현재 경험의 해당 축은 반드시 둘 중 하나이므로, 이 경우 **전체 분위기 OR 조건이 모든 경험에 참이 될 수 있다.** FE는 조건이 넓어진다는 점을 표시하고 조용히 AND로 바꾸지 않는다. 계정·최종 경험의 양쪽 값 동시 저장은 여전히 금지다.
+조회의 `AXIS:-1`은 저장값 `<= 0`, `AXIS:1`은 저장값 `>= 0`을 뜻한다. 따라서 0은 양쪽 선택자에 모두 맞고, 같은 축의 양쪽 선택은 그 축의 모든 값을 포함한다. 분위기 조건은 전체 OR, 카테고리 조건은 전체 OR, 두 그룹은 AND이며 FE는 조건이 넓어진다는 점을 표시하고 조용히 AND로 바꾸지 않는다.
 
 조회 카테고리는 8종 중 여러 종류를 선택할 수 있다. 저장 상한 3개와 혼동하지 않는다. 필터를 적용할 때는 현재 열람 가능한 기록만 검사하고, 삭제 안내 항목은 필터 없는 전체 보기에서만 유지한다.
 
@@ -453,21 +451,23 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
 
 **확정 분위기4축 사전** · operationId: `getAtmosphereAxes` · 성공 `200`
 
-네 축 코드/라벨/표시 순서를 제공한다. ERD의 코드 상수에서 생성하며 DB 동적 사전 추가 없음.
+네 축 코드·순서·연속 범위와 기존 endpoint 라벨 anchor를 제공한다. ERD의 코드 상수에서 생성하며 DB 동적 사전 추가 없음. `minimum`/`maximum`은 유한 binary64 `[-1, 1]`을 뜻하고 options의 두 값은 전체 허용값 목록이 아니다. slider step·중간값 표시·0 라벨은 이 사전이 정하지 않는다.
 
 **요청 본문:** 없음. GET/query 또는 경로 식별자만 사용.
 
 **응답 스키마:** `AtmosphereAxesResponse`
 
-**응답 예시 — v1**
+**응답 예시 — v2**
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "items": [
     {
       "code": "CROWD_LEVEL",
       "order": 1,
+      "minimum": -1.0,
+      "maximum": 1.0,
       "options": [
         {
           "value": -1,
@@ -482,6 +482,8 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
     {
       "code": "SPATIAL_FEEL",
       "order": 2,
+      "minimum": -1.0,
+      "maximum": 1.0,
       "options": [
         {
           "value": -1,
@@ -496,6 +498,8 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
     {
       "code": "COMPANY_FIT",
       "order": 3,
+      "minimum": -1.0,
+      "maximum": 1.0,
       "options": [
         {
           "value": -1,
@@ -510,6 +514,8 @@ POST 성공은 접수이지 숨김 완료가 아니다. 운영자는 별도 제�
     {
       "code": "STAY_STYLE",
       "order": 4,
+      "minimum": -1.0,
+      "maximum": 1.0,
       "options": [
         {
           "value": -1,
@@ -652,7 +658,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **최초 위치·4축 설정** · operationId: `completeOnboarding` · 성공 `200`
 
-사용자 행을 잠근 뒤 최초 위치와 취향 v1을 함께 저장한다. 같은 최초 요청의 재전송은 변경 없이 200, 다른 값으로 재초기화하면 409다. 09시 이후 완료하면 다음 정기 배달부터 대상이다.
+사용자 행을 잠근 뒤 최초 위치와 취향 v2를 함께 저장한다. 같은 최초 요청의 재전송은 변경 없이 200, 다른 값으로 재초기화하면 409다. 09시 이후 완료하면 다음 정기 배달부터 대상이다.
 
 **요청 스키마:** `OnboardingRequest`
 
@@ -1601,25 +1607,25 @@ bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한
 
 ### `Atmospheres`
 
-최종 설정/경험의 필수 4축. JSON 중복 키와 소수 리터럴 검사는 HTTP 파서에서 별도 수행한다.
+최종 설정/경험의 필수 4축. 각 값은 유한 binary64 `[-1, 1]`이며 `-0`은 `+0`으로 정규화한다. JSON 중복 키, 토큰 길이, 변환 전 범위는 HTTP 파서에서 검사한다. 서버는 slider step이나 표시 자릿수로 값을 양자화하지 않는다.
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
-| `CROWD_LEVEL` | -1 / 1 | 예 |  |
-| `SPATIAL_FEEL` | -1 / 1 | 예 |  |
-| `COMPANY_FIT` | -1 / 1 | 예 |  |
-| `STAY_STYLE` | -1 / 1 | 예 |  |
+| `CROWD_LEVEL` | number (double) | 예 | 최소 -1; 최대 1 |
+| `SPATIAL_FEEL` | number (double) | 예 | 최소 -1; 최대 1 |
+| `COMPANY_FIT` | number (double) | 예 | 최소 -1; 최대 1 |
+| `STAY_STYLE` | number (double) | 예 | 최소 -1; 최대 1 |
 
 ### `AnalyzedAtmospheres`
 
-AI 분석 중에만 null 허용. 최종 저장에는 null 불가.
+AI 분석 중에만 각 키의 null(미결)을 허용한다. 0은 알려진 정상 축이고 최종 저장에는 null 불가다.
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
-| `CROWD_LEVEL` | -1 / 1 / null | 예 |  |
-| `SPATIAL_FEEL` | -1 / 1 / null | 예 |  |
-| `COMPANY_FIT` | -1 / 1 / null | 예 |  |
-| `STAY_STYLE` | -1 / 1 / null | 예 |  |
+| `CROWD_LEVEL` | number (double) / null | 예 | 최소 -1; 최대 1 |
+| `SPATIAL_FEEL` | number (double) / null | 예 | 최소 -1; 최대 1 |
+| `COMPANY_FIT` | number (double) / null | 예 | 최소 -1; 최대 1 |
+| `STAY_STYLE` | number (double) / null | 예 | 최소 -1; 최대 1 |
 
 ### `Coordinates`
 
@@ -1739,30 +1745,28 @@ code로 분기. retryAfterSeconds는 없으면 null이며 429 응답의 Retry-Af
 
 ### `AxisOption`
 
-
+`value`는 endpoint 라벨 선택자이며 연속 축의 전체 허용값은 아니다.
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
-| `value` | -1 / 1 | 예 |  |
+| `value` | -1 / 1 | 예 | endpoint selector |
 | `label` | string | 예 |  |
 
 ### `AtmosphereAxis`
-
-
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
 | `code` | AxisCode | 예 |  |
 | `order` | integer | 예 | 최소 1; 최대 4 |
-| `options` | AxisOption[] | 예 | 최소개수 2; 최대개수 2 |
+| `minimum` | number (double) | 예 | -1 |
+| `maximum` | number (double) | 예 | 1 |
+| `options` | AxisOption[] | 예 | endpoint label anchor, 최소개수 2; 최대개수 2 |
 
 ### `AtmosphereAxesResponse`
 
-
-
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
-| `version` | 1 | 예 |  |
+| `version` | 2 | 예 | 현재 연속축 정의 버전 |
 | `items` | AtmosphereAxis[] | 예 | 최소개수 4; 최대개수 4 |
 
 ### `PlaceCategory`
@@ -1841,7 +1845,7 @@ code로 분기. retryAfterSeconds는 없으면 null이며 429 응답의 Retry-Af
 
 ### `AnalyzeResponse`
 
-analysisToken은 서버 서명 확인값 제안. 본문 해시·사용자·AI 제안/실행상태·모델 버전·만료를 검증한다. 실패한 AI 호출도 수동 입력을 위한 200+FAILED로 표현 가능. 최종 축 null은 불가.
+analysisToken은 payload v3 서버 서명 확인값이다. 본문 해시·사용자·AI 제안/실행상태·모델 버전·axisDefinitionVersion=2·정규화 축 bits·만료를 검증한다. 이전 또는 알 수 없는 payload token은 422로 거절하고 재분석한다. 실패한 AI 호출도 수동 입력을 위한 200+FAILED로 표현 가능하며, 최종 축 null은 불가다.
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
@@ -2119,7 +2123,7 @@ DELIVERED이면 delivery 존재(삭제 tombstone 포함). 그 외 delivery=null.
 | `DUPLICATE_JSON_KEY` | 400 | 중복된 JSON 키가 있습니다 | 계약 초안 |
 | `INVALID_REQUEST` | 400 | 요청 형식이 올바르지 않습니다 | 계약 초안 |
 | `VALIDATION_ERROR` | 422 | 입력값을 확인해 주세요 | 계약 초안 |
-| `INVALID_ATMOSPHERES` | 422 | 분위기 4축을 각각 -1 또는 1로 입력해 주세요 | 계약 초안 |
+| `INVALID_ATMOSPHERES` | 422 | 분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요 | 계약 초안 |
 | `INVALID_CATEGORIES` | 422 | 정의된 카테고리를 중복 없이 최대 3개 선택해 주세요 | 계약 초안 |
 | `IMMUTABLE_FIELD` | 422 | 변경할 수 없는 항목이 포함되어 있습니다 | 계약 초안 |
 | `ONBOARDING_ALREADY_COMPLETED` | 409 | 초기 설정은 이미 완료되었습니다 | 계약 초안 |

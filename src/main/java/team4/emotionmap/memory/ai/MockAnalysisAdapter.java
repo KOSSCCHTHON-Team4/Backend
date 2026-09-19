@@ -82,11 +82,11 @@ public class MockAnalysisAdapter implements AnalysisPort {
                                            List<PlaceCategoryCode> categories) {
         java.util.Map<String, String> evidence = new java.util.LinkedHashMap<>();
         for (AtmosphereAxis axis : AtmosphereAxis.ordered()) {
-            Integer v = atmospheres.get(axis);
+            Double v = atmospheres.get(axis);
             if (v == null) {
                 continue;
             }
-            String[] stems = v == AtmosphereAxis.POSITIVE ? POSITIVE_STEMS.get(axis) : NEGATIVE_STEMS.get(axis);
+            String[] stems = v == 1.0 ? POSITIVE_STEMS.get(axis) : NEGATIVE_STEMS.get(axis);
             for (String stem : stems) {
                 int at = content.indexOf(stem);
                 if (at >= 0) {
@@ -107,13 +107,13 @@ public class MockAnalysisAdapter implements AnalysisPort {
                 masked, pii, !unsafe, unsafe ? "MOCK_UNSAFE" : null);
     }
 
-    private static Integer axisValue(String content, AtmosphereAxis axis) {
+    private static Double axisValue(String content, AtmosphereAxis axis) {
         boolean negative = containsAny(content, NEGATIVE_STEMS.get(axis));
         boolean positive = containsAny(content, POSITIVE_STEMS.get(axis));
         if (negative == positive) {
             return null;
         }
-        return positive ? AtmosphereAxis.POSITIVE : AtmosphereAxis.NEGATIVE;
+        return positive ? 1.0 : -1.0;
     }
 
     private static boolean containsAny(String content, String[] stems) {

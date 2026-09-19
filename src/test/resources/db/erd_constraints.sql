@@ -17,20 +17,32 @@ END $$;
 INSERT INTO app_users(id, access_status) VALUES
     ('10000000-0000-4000-8000-000000000001', 'ACTIVE'),
     ('10000000-0000-4000-8000-000000000002', 'ACTIVE');
-INSERT INTO user_preference_versions(id,user_id,revision,effective_at,crowd_level,spatial_feel,company_fit,stay_style) VALUES
-    ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',1,'2026-09-18T00:00:00Z',-1,1,-1,1),
-    ('20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002',1,'2026-09-18T00:00:00Z',1,-1,1,-1);
+INSERT INTO user_preference_versions(id,user_id,revision,effective_at,crowd_level,spatial_feel,company_fit,stay_style,axis_definition_version) VALUES
+    ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',1,'2026-09-18T00:00:00Z',-1,1,-1,1,1),
+    ('20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002',1,'2026-09-18T00:00:00Z',1,-1,1,-1,2);
 INSERT INTO places(id,label,lat,lng) VALUES ('30000000-0000-4000-8000-000000000001','Synthetic pin',37.5,127.0);
 INSERT INTO memories(id,owner_id,place_id,distribution_type,origin_kind,data_origin,content,place_lat,place_lng,
     crowd_level,spatial_feel,company_fit,stay_style,crowd_source,spatial_source,company_source,stay_source,
-    atmosphere_analysis_status,category_analysis_status,moderation_status,created_at,available_at)
+    axis_definition_version,atmosphere_analysis_status,category_analysis_status,moderation_status,created_at,available_at)
 SELECT id::UUID,'10000000-0000-4000-8000-000000000002','30000000-0000-4000-8000-000000000001',
     'LETTER','DIRECT','SYNTHETIC','Synthetic experience',37.5,127.0,-1,1,-1,1,'USER','USER','USER','USER',
+    CASE WHEN id = '40000000-0000-4000-8000-000000000001' THEN 1 ELSE 2 END,
     'NOT_RUN','NOT_RUN','APPROVED','2026-09-18T00:00:00Z','2026-09-18T00:01:00Z'
 FROM (VALUES ('40000000-0000-4000-8000-000000000001'),('40000000-0000-4000-8000-000000000002')) AS fixtures(id);
 
+-- v1 rows stay endpoint-only; new v2 rows accept any finite binary64 value in range, including zero.
 SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level=0 WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23514');
-SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level=NULL WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23502');
+UPDATE memories SET crowd_level=0.25, spatial_feel=0 WHERE id='40000000-0000-4000-8000-000000000002';
+SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level=1.0000000000000002 WHERE id='40000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level='NaN'::double precision WHERE id='40000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level='Infinity'::double precision WHERE id='40000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE memories SET crowd_level='-Infinity'::double precision WHERE id='40000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE memories SET axis_definition_version=3 WHERE id='40000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET crowd_level=0 WHERE id='20000000-0000-4000-8000-000000000001'$q$,'23514');
+UPDATE user_preference_versions SET crowd_level=0.25, spatial_feel=0 WHERE id='20000000-0000-4000-8000-000000000002';
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET crowd_level='NaN'::double precision WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET crowd_level='Infinity'::double precision WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET axis_definition_version=3 WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE memories SET origin_kind='LETTER_COPY' WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE memories SET image_path='orphan.png' WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE app_users SET mailbox_lat=37.5 WHERE id='10000000-0000-4000-8000-000000000001'$q$,'23514');

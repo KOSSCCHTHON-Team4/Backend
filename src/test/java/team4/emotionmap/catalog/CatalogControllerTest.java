@@ -21,7 +21,7 @@ import team4.emotionmap.platform.web.GlobalExceptionHandler;
 import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
-/** A03: 응답이 API_SPEC 8.2~8.4 예시(JSON fixture)와 필드명·타입·순서까지 정확히 같은지 확인한다. */
+/** 현재 공개 catalog 응답이 JSON fixture의 필드명·타입·순서와 정확히 같은지 확인한다. */
 class CatalogControllerTest {
 
     private static String fixture(String name) throws Exception {
@@ -37,11 +37,11 @@ class CatalogControllerTest {
     }
 
     @Test
-    void atmosphereAxesMatchSpecExactly() throws Exception {
+    void atmosphereAxesMatchCurrentFixtureExactly() throws Exception {
         String body = mvc(() -> { throw new IllegalStateException("unused"); })
                 .perform(get("/v1/atmosphere-axes")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
-        JSONAssert.assertEquals(fixture("atmosphere-axes.v1.json"), body, JSONCompareMode.STRICT);
+        JSONAssert.assertEquals(fixture("atmosphere-axes.v2.json"), body, JSONCompareMode.STRICT);
     }
 
     @Test

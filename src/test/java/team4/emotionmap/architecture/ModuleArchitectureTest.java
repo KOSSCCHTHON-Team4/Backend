@@ -50,7 +50,7 @@ class ModuleArchitectureTest {
             "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService",
                     "media.ImageUpload", "media.ImageUploadService",
                     "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository",
-                    "place.PlaceCategorySource", "place.NaverCategoryMapper"),
+                    "place.PlaceCategorySource", "place.NaverCategoryMapper", "platform.web.json.StrictJson"),
             "notification", List.of("account.User", "account.AccountAccessService",
                     "place.Place", "place.PlaceRepository", "memory.MemoryRepository"),
             "media", List.of("account.User", "account.UserRepository", "account.AccountAccessService",

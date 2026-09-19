@@ -12,15 +12,15 @@ import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
 
 class AnalysisResultTest {
 
-    private static final AnalysisProvenance P = new AnalysisProvenance("m", "v1", 1, 1);
+    private static final AnalysisProvenance P = new AnalysisProvenance("m", "v2", 2, 1);
 
     @Test
     void statusesDeriveFromValues() {
-        AnalysisResult full = AnalysisResult.of(new AnalyzedAtmospheres(-1, -1, 1, 1), List.of(PlaceCategoryCode.CAFE), P);
+        AnalysisResult full = AnalysisResult.of(new AnalyzedAtmospheres(-1.0, -1.0, 1.0, 1.0), List.of(PlaceCategoryCode.CAFE), P);
         assertThat(full.atmosphereStatus()).isEqualTo(AtmosphereAnalysisStatus.SUCCEEDED);
         assertThat(full.categoryStatus()).isEqualTo(CategoryAnalysisStatus.SUCCEEDED);
 
-        AnalysisResult partial = AnalysisResult.of(new AnalyzedAtmospheres(-1, -1, 1, null), List.of(), P);
+        AnalysisResult partial = AnalysisResult.of(new AnalyzedAtmospheres(-1.0, -1.0, 1.0, null), List.of(), P);
         assertThat(partial.atmosphereStatus()).isEqualTo(AtmosphereAnalysisStatus.PARTIAL);
         assertThat(partial.categoryStatus()).isEqualTo(CategoryAnalysisStatus.INSUFFICIENT);
 
@@ -38,7 +38,7 @@ class AnalysisResultTest {
         assertThatThrownBy(() -> new AnalysisResult(AnalyzedAtmospheres.ALL_UNKNOWN, List.of(),
                 CategoryAnalysisStatus.NOT_RUN, AtmosphereAnalysisStatus.FAILED, P, null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AnalysisResult(new AnalyzedAtmospheres(1, 1, 1, 1), List.of(),
+        assertThatThrownBy(() -> new AnalysisResult(new AnalyzedAtmospheres(1.0, 1.0, 1.0, 1.0), List.of(),
                 CategoryAnalysisStatus.INSUFFICIENT, AtmosphereAnalysisStatus.PARTIAL, P, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }

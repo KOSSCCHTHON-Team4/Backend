@@ -26,13 +26,16 @@ class MockAdaptersTest {
     private final MockModerationAdapter moderation = new MockModerationAdapter(props);
 
     @Test
-    void happyPathClassifiesFromLabels() {
+    void happyPathClassifiesWithMockV2DoubleProvenance() {
         AnalysisResult r = analysis.analyze(AnalysisRequest.of(DictionaryFixtures.SAMPLE_CONTENT, Duration.ofSeconds(5)));
         assertThat(r.atmosphereStatus()).isEqualTo(AtmosphereAnalysisStatus.SUCCEEDED);
         assertThat(r.atmospheres().toComplete()).contains(DictionaryFixtures.QUIET_COZY_TOGETHER_LONG);
+        assertThat(r.atmospheres().crowdLevel()).isEqualTo(-1.0);
         assertThat(r.categories()).containsExactly(PlaceCategoryCode.CAFE, PlaceCategoryCode.STUDY_WORK);
         assertThat(r.categoryStatus()).isEqualTo(CategoryAnalysisStatus.SUCCEEDED);
         assertThat(r.provenance().model()).isEqualTo("mock-analysis");
+        assertThat(r.provenance().axisDefinitionVersion()).isEqualTo(2);
+        assertThat(r.provenance().taxonomyVersion()).isEqualTo(1);
     }
 
     @Test

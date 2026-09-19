@@ -19,7 +19,7 @@ public record MemoryResponse(
         UUID id, UUID placeId, String content, String imageUrl,
         DistributionType distributionType, OriginKind originKind, DataOrigin dataOrigin,
         String placeLabelSnapshot, Double placeLat, Double placeLng,
-        Short crowdLevel, Short spatialFeel, Short companyFit, Short stayStyle,
+        double crowdLevel, double spatialFeel, double companyFit, double stayStyle,
         AxisSource crowdSource, AxisSource spatialSource, AxisSource companySource, AxisSource staySource,
         Short axisDefinitionVersion, AtmosphereAnalysisStatus atmosphereAnalysisStatus,
         CategoryAnalysisStatus categoryAnalysisStatus, ContentStatus contentStatus,

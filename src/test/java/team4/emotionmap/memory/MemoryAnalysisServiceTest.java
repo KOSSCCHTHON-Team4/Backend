@@ -65,11 +65,12 @@ class MemoryAnalysisServiceTest {
         AnalysisReceipt receipt = codec.verify(r.analysisToken(), user, DictionaryFixtures.SAMPLE_CONTENT, clock.instant());
         assertThat(receipt.enrichment().tags()).containsExactly("창가", "독서");
         assertThat(receipt.enrichment().categoryConfidence()).isEqualTo(0.95);
+        assertThat(receipt.provenance().axisDefinitionVersion()).isEqualTo(2);
     }
 
     @Test
     void naverCategoryMappingWinsOverAi() {
-        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1, -1, -1, -1),
+        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1.0, -1.0, -1.0, -1.0),
                 List.of(PlaceCategoryCode.STUDY_WORK), DictionaryFixtures.MOCK_PROVENANCE));
         AnalyzeResponse r = service.analyze(user, new AnalyzeRequest("조용한 곳", "카페,디저트>카페"));
         assertThat(r.categories()).containsExactly("CAFE", "STUDY_WORK");
@@ -80,7 +81,7 @@ class MemoryAnalysisServiceTest {
     @Test
     void lowConfidenceBecomesOtherSuggestionWithWarning() {
         AnalysisEnrichment low = new AnalysisEnrichment(Map.of(), List.of(), 0.4, "ai", null, false, true, null);
-        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1, -1, -1, -1),
+        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1.0, -1.0, -1.0, -1.0),
                 List.of(PlaceCategoryCode.SHOPPING), DictionaryFixtures.MOCK_PROVENANCE, low));
         AnalyzeResponse r = service.analyze(user, new AnalyzeRequest("애매한 어딘가", null));
         assertThat(r.categories()).containsExactly("OTHER");
@@ -104,7 +105,7 @@ class MemoryAnalysisServiceTest {
         String original = "여기 연락처 010-1234-5678 로 예약하세요. 조용한 카페.";
         String masked = "여기 연락처 [전화번호] 로 예약하세요. 조용한 카페.";
         AnalysisEnrichment e = new AnalysisEnrichment(Map.of(), List.of(), 0.9, "ai", masked, true, true, null);
-        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1, -1, -1, -1),
+        when(port.analyze(any())).thenReturn(AnalysisResult.of(new AnalyzedAtmospheres(-1.0, -1.0, -1.0, -1.0),
                 List.of(PlaceCategoryCode.CAFE), DictionaryFixtures.MOCK_PROVENANCE, e));
         AnalyzeResponse r = service.analyze(user, new AnalyzeRequest(original, null));
         assertThat(r.maskedContent()).isEqualTo(masked);

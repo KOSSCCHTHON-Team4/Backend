@@ -12,8 +12,8 @@ import team4.emotionmap.contracts.memory.CategoryAssignment;
 
 /**
  * 최종 저장값 vs AI 제안 비교로 AI/USER 출처를 <b>서버가</b> 판정한다(A04). 클라이언트 플래그는 보지 않는다.
- * 규칙: 축은 AI 제안과 값이 같으면 AI, 제안이 null 이었거나 값이 다르면 USER. 카테고리는 AI 제안 목록에 있으면 AI.
- * 영수증이 없으면(수동 저장) 전부 USER.
+ * 규칙: 축은 정규화된 binary64 bits 가 AI 제안과 같으면 AI, 제안이 null 이었거나 bits 가 다르면 USER.
+ * 카테고리는 AI 제안 목록에 있으면 AI. 영수증이 없으면(수동 저장) 전부 USER.
  */
 public final class AxisSourceResolver {
 
@@ -32,8 +32,10 @@ public final class AxisSourceResolver {
     }
 
     private static AxisSource sourceOf(Atmospheres finalValues, AnalyzedAtmospheres suggested, AtmosphereAxis axis) {
-        Integer s = suggested.get(axis);
-        return s != null && s == finalValues.get(axis) ? AxisSource.AI : AxisSource.USER;
+        Double suggestedValue = suggested.get(axis);
+        return suggestedValue != null
+                && Double.doubleToLongBits(suggestedValue) == Double.doubleToLongBits(finalValues.get(axis))
+                ? AxisSource.AI : AxisSource.USER;
     }
 
     /** slot_no 는 입력 순서 1..n 으로 부여한다(관련도 순위가 아니다). */

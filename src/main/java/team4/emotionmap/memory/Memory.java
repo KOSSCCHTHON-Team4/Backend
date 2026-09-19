@@ -19,6 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import team4.emotionmap.contracts.dictionary.AtmosphereAxis;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
 import team4.emotionmap.contracts.dictionary.VibeVector;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
@@ -72,16 +73,16 @@ public class Memory {
     private Double placeLng;
 
     @Column(name = "crowd_level", nullable = false)
-    private Short crowdLevel;
+    private double crowdLevel;
 
     @Column(name = "spatial_feel", nullable = false)
-    private Short spatialFeel;
+    private double spatialFeel;
 
     @Column(name = "company_fit", nullable = false)
-    private Short companyFit;
+    private double companyFit;
 
     @Column(name = "stay_style", nullable = false)
-    private Short stayStyle;
+    private double stayStyle;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "crowd_source", nullable = false, columnDefinition = "text")
@@ -101,7 +102,7 @@ public class Memory {
 
     @Builder.Default
     @Column(name = "axis_definition_version", nullable = false)
-    private Short axisDefinitionVersion = 1;
+    private Short axisDefinitionVersion = (short) AtmosphereAxis.DEFINITION_VERSION;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "atmosphere_analysis_status", nullable = false, columnDefinition = "text")

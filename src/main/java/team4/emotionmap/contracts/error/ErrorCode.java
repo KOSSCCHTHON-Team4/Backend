@@ -25,7 +25,7 @@ public enum ErrorCode {
     DUPLICATE_JSON_KEY(400, "중복된 JSON 키가 있습니다"),
     INVALID_REQUEST(400, "요청 형식이 올바르지 않습니다"),
     VALIDATION_ERROR(422, "입력값을 확인해 주세요"),
-    INVALID_ATMOSPHERES(422, "분위기 4축을 각각 -1 또는 1로 입력해 주세요"),
+    INVALID_ATMOSPHERES(422, "분위기 4축을 각각 -1 이상 1 이하의 유한한 숫자로 입력해 주세요"),
     INVALID_CATEGORIES(422, "정의된 카테고리를 중복 없이 최대 3개 선택해 주세요"),
     IMMUTABLE_FIELD(422, "변경할 수 없는 항목이 포함되어 있습니다"),
 
@@ -49,7 +49,7 @@ public enum ErrorCode {
     IMAGE_FILE_UNAVAILABLE(503, "이미지 파일을 불러오지 못했습니다"),
 
     // --- 분석 확인값 ---
-    ANALYSIS_TOKEN_INVALID(422, "분석 결과를 확인할 수 없습니다"),
+    ANALYSIS_TOKEN_INVALID(422, "분석 결과를 확인할 수 없습니다. 다시 분석해 주세요"),
     ANALYSIS_TOKEN_EXPIRED(422, "분석 결과가 만료되었습니다. 다시 분석하거나 직접 분류해 주세요"),
     ANALYSIS_CONTENT_MISMATCH(422, "분석한 본문과 저장할 본문이 다릅니다"),
 
