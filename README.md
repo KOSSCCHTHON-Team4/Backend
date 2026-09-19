@@ -4,7 +4,7 @@
 
 감정지도는 관심 지역의 경험을 취향에 맞춰 하루 한 편 받아보는 장소 기반 서비스입니다. 이 저장소는 백엔드 코드와 FE·BE·AI가 함께 검토할 기획·설계·API 계약을 관리합니다.
 
-**현재는 기존 백엔드 기반 코드와 최신 설계 문서가 함께 있는 단계입니다.** 아래의 MVP 정책과 API 계약 초안을 모두 구현한 상태는 아닙니다. 실제 서버 동작은 코드와 실행 시 생성되는 Swagger 문서를 확인해야 합니다.
+**현재는 최신 ERD의 영속성 모델과 기존 API 호출부를 전환한 단계입니다.** UUID·필수 4축·취향 이력·수신/좋아요·이미지 소유권을 사용하며 업무 API는 모두 `/v1/...`입니다. 정기 배달·AI 등 전체 MVP 구현 완료를 뜻하지 않습니다. 실행 시 생성되는 Swagger가 실제 제공 API의 기준입니다.
 
 ## 문서 안내
 
@@ -17,7 +17,7 @@
 | [현재 코드의 아키텍처](./ARCHITECTURE.md) | 패키지 소유권, 현재 스택·실행 환경, 개발 규칙 |
 | [개발 가이드](./CLAUDE.md) | 저장소 작업 지침 |
 
-문서 기준일은 **2026-09-19**입니다. 기획서의 확정 제품 정책과 ERD·API의 구현 제안·합의 필요 항목을 구분합니다. 특히 로그인은 최신 API 명세의 **이메일·비밀번호 전용** 결정을 따르며, ERD 1.0의 공급자 인증 모델은 보완 대상입니다. 문서의 ‘최종’이나 OpenAPI 수록 여부가 구현·연동 검증 완료를 뜻하지는 않습니다.
+문서 기준일은 **2026-09-19**입니다. 로그인은 **이메일·비밀번호 전용**이며 ERD에도 자격증명 보완안을 반영했습니다. 제품 계약과 이번 영속성 전환의 구현 범위를 구분합니다. 문서의 ‘최종’이나 OpenAPI 수록 여부가 전체 구현·연동 검증 완료를 뜻하지는 않습니다.
 
 ## MVP 핵심 정책
 
@@ -61,24 +61,25 @@
 
 ## 데이터 설계 방향
 
-[ERD 1.0](./docs/ERD.md)은 다음 **10개 기본 테이블**을 제안합니다. 현재 Flyway에 적용된 스키마 목록과는 다릅니다.
+[ERD](./docs/ERD.md)의 **10개 기본 도메인 테이블**에 `image_uploads`를 추가한 11개 테이블을 사용합니다. 모든 경험·계정 식별자는 UUID이며 카테고리는 고정 smallint, 일부 관계는 복합키입니다.
 
-| 책임 | ERD 1.0의 테이블 제안 |
+| 책임 | 테이블 |
 | --- | --- |
-| 계정·인증 | `app_users`, `auth_identities` |
+| 계정·인증 | `app_users`, `email_password_credentials` |
 | 불변 취향 이력 | `user_preference_versions` |
 | 장소·경험 | `places`, `memories` |
 | 자체 분류 | `place_categories`, `memory_categories` |
 | 일일 작업·실제 수신 | `daily_selections`, `letter_deliveries` |
 | 신고·운영 처리 | `reports` |
+| 업로드 소유권·첨부 | `image_uploads` |
 
 - UUID 식별자와 필수 4축 컬럼을 사용하고, 취향은 덮어쓰기 대신 불변 버전으로 보존합니다.
 - 일일 작업과 실제 배달을 분리해 후보 없음·실패·성공을 구분합니다. 사용자·날짜별 작업, 날짜별 배달, 같은 원문의 재수신 금지는 각각 별도 제약입니다.
-- 좋아요는 `letter_deliveries.liked_at`으로 관리하며 별도 Reaction·Bookmark·원문-사본 연결 테이블을 두지 않는 안입니다.
-- 일반 삭제는 소프트 삭제, FK는 `RESTRICT`를 제안합니다. 원문 삭제가 수신 이력이나 독립 PRIVATE를 함께 삭제하지 않도록 설계합니다.
-- 최신 API 초안은 `auth_identities` 대신 `email_password_credentials`를 사용하는 인증 보완안과 업로드 대기 메타데이터·멱등성 저장소·신고 설명 필드의 추가를 제안합니다. 최종 테이블 수와 마이그레이션은 별도 확정해야 합니다.
+- 좋아요는 `letter_deliveries.liked_at`으로 관리합니다. 별도 Reaction·Bookmark·원문-사본 연결 테이블은 없습니다.
+- 일반 삭제는 소프트 삭제이며 FK는 `RESTRICT`입니다. 원문 삭제가 수신 이력이나 독립 PRIVATE를 함께 삭제하지 않습니다.
+- 자격증명은 계정과 분리하고 신고에는 `details`를 저장합니다. 범용 요청 멱등성 저장소는 아직 구현하지 않았습니다.
 
-**문서에 적힌 DDL을 기존 DB에 그대로 적용하지 않습니다.** 현재 스키마와의 차이, 데이터 전환, 권한·동시성·파일 정합성을 검토한 뒤 새 Flyway 마이그레이션으로 반영해야 합니다.
+**기존 데이터 자동 이관은 지원하지 않습니다.** V1은 그대로 유지하고 V2에서 구형 6개 테이블이 모두 빈 경우에만 전환합니다. 데이터가 있으면 삭제하지 않고 마이그레이션을 중단합니다. 별도 빈 개발 DB를 준비하세요. V3는 자체 카테고리 8종을 초기화합니다.
 
 ## API 계약 초안
 
@@ -86,16 +87,18 @@
 
 | 영역 | 메서드·경로 |
 | --- | --- |
-| 로그인 | `POST /auth/login` |
-| 서비스 설정·사전 | `GET /config`, `GET /atmosphere-axes`, `GET /place-categories` |
-| 계정·취향 | `GET /users/me`, `POST /users/me/onboarding`, `PATCH /users/me/preferences` |
-| 경험 분석·생성 | `POST /memories/analyze`, `POST /memories` |
-| 경험 조회·삭제 | `GET /memories/{id}`, `DELETE /memories/{id}`, `GET /users/me/memories` |
-| 이미지 | `POST /images`, `GET /memories/{id}/image` |
-| 편지 | `GET /letters/today`, `GET /letters`, `PATCH /letters/{deliveryId}/read`, `POST /letters/{deliveryId}/like` |
-| 개인 보관함 | `GET /bookmarks` |
-| 지도 | `GET /places`, `GET /places/{id}/memories` |
-| 신고 | `POST /reports` |
+| 로그인 | `POST /v1/auth/login` |
+| 서비스 설정·사전 | `GET /v1/config`, `GET /v1/atmosphere-axes`, `GET /v1/place-categories` |
+| 계정·취향 | `GET /v1/users/me`, `POST /v1/users/me/onboarding`, `PATCH /v1/users/me/preferences` |
+| 경험 분석·생성 | `POST /v1/memories/analyze`, `POST /v1/memories` |
+| 경험 조회·삭제 | `GET /v1/memories/{id}`, `DELETE /v1/memories/{id}`, `GET /v1/users/me/memories` |
+| 이미지 | `POST /v1/images`, `GET /v1/memories/{id}/image` |
+| 편지 | `GET /v1/letters/today`, `GET /v1/letters`, `PATCH /v1/letters/{deliveryId}/read`, `POST /v1/letters/{deliveryId}/like` |
+| 개인 보관함 | `GET /v1/bookmarks` |
+| 지도 | `GET /v1/places`, `GET /v1/places/{id}/memories` |
+| 신고 | `POST /v1/reports` |
+
+호출 형식은 `https://{domain 또는 IP}/v1/{endpoint}`입니다. `API_BASE_URL`에는 origin만 두고 명세의 경로를 붙입니다. 무버전·`/api/...` 호환 경로는 제공하지 않습니다. Swagger·OpenAPI JSON·Actuator는 업무 API와 별도의 문서·운영 경로입니다.
 
 주요 연동 계약은 다음과 같습니다. 로그인 방식 외의 세부 구현 제안은 팀 검토가 필요합니다.
 
@@ -108,20 +111,23 @@
 
 반경·토큰 TTL·입력 길이·파일 크기·페이지 제한 등의 **예시 숫자는 운영 확정값이 아닙니다.** 인증 저장·제한, AI 모델·서명 계약, 파일 수명·실패 복구, 운영 도구는 [API 명세서](./docs/API_SPEC.md)의 합의 항목을 확인합니다.
 
-## 현재 구현과 최신 설계의 차이
+## 현재 구현 범위
 
-| 항목 | 현재 코드·설정 | 최신 목표·계약 초안 |
-| --- | --- | --- |
-| 스키마 | `V1__init.sql`의 6개 테이블, Long/BIGSERIAL ID | ERD의 UUID·10개 기본 테이블과 API 보완안 |
-| 분류·추천 | `emotion_tag`, `vector(1024)`와 선택 주입 AI 포트 | 작성자가 확정하는 필수 4축·자체 카테고리, 최고점 동률에서만 자연어 비교 |
-| 인증·계정 | 이메일·비밀번호 회원가입/로그인, JWT·BCrypt, 홈 위치 수정 API | 초대 계정 로그인, 위치 1회 설정, 버전 기반 취향 변경 |
-| 반응·삭제 | 별도 Reaction, 기억 하드 삭제와 FK 삭제 전파 | 일회성 좋아요·독립 PRIVATE 복사, 소프트 삭제와 수신 이력 보존 |
-| 이미지 | `/api/images`, `/api/images/{key}`, key 기반 저장 | `/images`, `/memories/{id}/image`, 소유권·수명 관리가 있는 선행 업로드 |
-| API 문서 | 실행 중인 코드에서 생성하는 `/v3/api-docs` | 저장소의 `docs/openapi.yaml` 계약 초안 |
+| 영역 | 이번 영속성 전환에 포함 |
+| --- | --- |
+| 모델·저장소 | UUID, 필수 4축, 불변 취향 버전, 카테고리 복합키, 일일 슬롯·수신·신고 모델 |
+| 계정 | 이메일·비밀번호 로그인, ACTIVE 계정·온보딩 Guard, 위치 최초 설정, 취향 버전 변경 |
+| 경험·장소 | 수동 4축·카테고리 저장, 신규 핀/가시 핀 재사용, 권한 기반 조회, 소프트 삭제 |
+| 수신·좋아요 | 기존 수신 목록·최초 읽음, 독립 PRIVATE·분류·파일 복사와 일회성 좋아요 |
+| 이미지·신고 | 본인 임시 업로드만 첨부, Bearer 경험 이미지 조회, 열람 가능한 경험 신고 |
 
-정기 선정·초대/온보딩·독립 PRIVATE 복사 등 최신 계약의 전체 흐름과 객체별 인가를 기존 기반 코드가 모두 보장한다고 가정하지 않습니다. AI 포트 구현·모델도 아직 준비되지 않았습니다.
+정기 후보 선정·배달 스케줄러, AI 분류·안전 승인·자연어 동률 평가, Today/config/사전/BOOKMARK 전용 API, 전체 커서·필터·공통 오류·요청 멱등성·로그인 제한·운영 도구는 이번 전환에 포함하지 않습니다. 전체 API_SPEC의 응답 필드·목록 포맷까지 완성한 단계는 아닙니다.
 
-최신 기획은 임베딩·pgvector를 필수로 요구하지 않지만, **현재 코드의 마이그레이션과 매핑에는 pgvector가 필요**합니다. 이 README 갱신으로 실행 의존성이나 스키마를 제거하지 않습니다.
+직접 생성은 명시적 수동 입력만 지원하며 분류 상태는 `NOT_RUN`, 출처는 `USER`입니다. 안전 검사는 `PENDING`, `available_at`은 NULL이므로 새 LETTER를 자동 승인·배달하지 않습니다. 유효성을 확인할 AI 어댑터가 없는 `analysisToken`은 거절합니다.
+
+공개 회원가입과 위치 변경 API는 제거했습니다. 개발 로그인에는 내부 절차로 만든 ACTIVE 계정과 BCrypt 자격증명이 필요합니다. 신규 Entity에 기본 설정만 넣고 공개 가입을 대신하는 우회 API는 제공하지 않습니다.
+
+Hibernate 벡터 매핑·임베딩 의존성은 제거했습니다. 단, 변경하지 않은 **V1을 처음 실행할 때는 pgvector 확장이 여전히 필요**합니다.
 
 ## 현재 기술 스택과 구조
 
@@ -129,7 +135,7 @@
 | --- | --- |
 | 언어·런타임 | Java 21 LTS |
 | 프레임워크·빌드 | Spring Boot 4.1.0, Gradle Wrapper 9.0.0, Kotlin DSL |
-| DB·영속성 | PostgreSQL 17 + pgvector, Spring Data JPA·hibernate-vector, Flyway |
+| DB·영속성 | PostgreSQL 17, Spring Data JPA, Flyway. 과거 V1 실행에만 pgvector 필요 |
 | 인증 | Spring Security, JWT(jjwt), BCrypt |
 | 문서·테스트 | springdoc-openapi, JUnit, ArchUnit |
 | 보일러플레이트 | Lombok, DTO는 Java record |
@@ -138,14 +144,12 @@
 
 ```text
 src/main/java/team4/emotionmap/
-├── account/           # 기존 인증·프로필
-├── memory/            # 기억과 상태·공개 범위
-│   ├── ai/            # AI 포트와 임베딩 설정
-│   └── reaction/      # 기존 기억 반응
-├── place/             # 장소·지도 영역 조회
-├── letter/            # 수신 목록·읽음 상태
-├── report/            # 신고 접수
-├── media/             # 이미지 저장·조회
+├── account/           # 계정·이메일 자격증명·불변 취향
+├── memory/            # 경험·분류 연결·접근 정책
+├── place/             # 장소·자체 카테고리 사전
+├── letter/            # 일일 슬롯·수신·읽음·좋아요
+├── report/            # 신고·처리 상태
+├── media/             # 업로드 메타데이터·파일 저장
 └── platform/          # 보안·OpenAPI 설정
 ```
 
@@ -178,10 +182,16 @@ DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `ps
 - JWT 시크릿은 `JWT_SECRET`, 업로드 경로는 `APP_UPLOAD_DIR`로 설정합니다. 배포 시 개발용 기본 시크릿·비밀번호를 사용하지 않습니다.
 - 실행 후 [Swagger UI](http://localhost:8080/swagger-ui.html)와 [현재 OpenAPI JSON](http://localhost:8080/v3/api-docs)을 확인할 수 있습니다. 최신 계약 YAML이 자동으로 서버에 적용되는 것은 아닙니다.
 
+DB 제약 회귀 검증은 전체 마이그레이션이 적용된 **별도 테스트 DB**에서 실행합니다. 합성 fixture는 트랜잭션 끝에 롤백됩니다.
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f src/test/resources/db/erd_constraints.sql
+```
+
 ## 협업·검증 원칙
 
 - `main` 직접 push 대신 작업 브랜치와 PR을 사용합니다.
 - DB 스키마는 [Flyway 마이그레이션](./src/main/resources/db/migration/)으로 관리합니다. 이미 적용된 파일은 수정하지 않고, 최신 번호를 확인해 새 마이그레이션을 추가합니다.
 - CI에서는 DB 없는 테스트만 실행합니다. DB·동시성·파일·실제 API 연동은 별도 로컬 검증이 필요하며, 문서의 수용 시나리오를 실행 결과로 간주하지 않습니다.
 - 코드·채팅·업로드에 고객 개인정보나 DB 덤프를 포함하지 않습니다. 개발·시연 데이터는 합성 또는 익명화하며, 시크릿은 환경변수로 주입하고 커밋하지 않습니다.
-- 현재 `docs/`에는 기획서·ERD·API 명세서·OpenAPI만 포함됩니다. 본문에서 참조하는 `AUTH_ERD_DELTA.md`, 별도 SQL·다이어그램·TypeScript·mock·검증 보고서는 아직 이 저장소에 없으므로 해당 파일의 존재나 검증 완료를 전제하지 않습니다.
+- 역할 분담과 공유 계약은 [`docs/plan/WORK_PLAN.md`](./docs/plan/WORK_PLAN.md), [`docs/plan/SHARED_CONTRACTS.md`](./docs/plan/SHARED_CONTRACTS.md)를 참고합니다. 원본 문서의 외부 첨부 SQL·mock·검증 보고서가 모두 이 저장소에 포함된 것은 아닙니다. 실제 스키마는 `src/main/resources/db/migration/`을 기준으로 합니다.

@@ -33,7 +33,7 @@
 | 영역 | 테이블 | 핵심 책임 |
 |---|---|---|
 | 계정 | `app_users` | 초대 접근 상태·운영 역할·변경 불가한 수신 위치 |
-| 인증 | `auth_identities` | 선택한 로그인 1종의 공급자와 주체 식별자 |
+| 인증 | `email_password_credentials` | 이메일·비밀번호 자격증명, 계정당 1개 |
 | 취향 | `user_preference_versions` | 4축·선택 자연어의 불변 버전 이력 |
 | 위치 | `places` | 내부 핀 식별자·좌표 |
 | 경험 | `memories` | LETTER와 PRIVATE 원문·복사본의 공통 저장 |
@@ -55,7 +55,7 @@
 
 **장소와 경험의 위치 스냅샷을 분리한다.** `places`는 내부 핀을 묶는 식별자이며, 경험에 복사된 좌표·표시명은 그 기록을 읽고 거리를 판정하는 기준이다. 공유 Place ID는 원문 연결이 아니지만 Place 변경이 과거 사본의 표시를 바꾸게 하지는 않는다.
 
-**여러 편지함·인증 공급자 확장·PUBLIC·임베딩용 테이블은 선제 구현하지 않는다.** 인증 방식이 아직 정해지지 않았으므로 식별자 연결만 제안한다. 초대 목록·비밀번호 자격증명·세션 저장은 선택한 인증 계약에 맞춰 후속 결정하고, 이번 테이블만으로 인증 완성을 주장하지 않는다.
+**여러 편지함·인증 공급자 확장·PUBLIC·임베딩용 테이블은 선제 구현하지 않는다.** 로그인은 이메일·비밀번호 전용이다. API_SPEC의 최신 인증 보완안을 반영해 공급자 식별자 모델 대신 `email_password_credentials`를 사용한다. 임시 이미지 소유권·첨부 상태는 별도 `image_uploads` 보완 테이블로 관리하며 기본 도메인 10개와 구분한다.
 
 ## 2. ERD와 관계
 
@@ -64,7 +64,7 @@
 ```mermaid
 erDiagram
     direction TB
-    appUsers ||..o| authIdentities : authenticates
+    appUsers ||..o| emailPasswordCredentials : authenticates
     appUsers ||..o{ preferenceVersions : versions
     appUsers ||..o{ memories : owns
     appUsers ||--o{ dailySelections : schedules
@@ -86,12 +86,12 @@ erDiagram
         double mailbox_lng "nullable before onboarding"
         timestamptz mailbox_enabled_at
     }
-    authIdentities["auth_identities"] {
-        uuid id PK
-        uuid user_id FK,UK
-        text provider "with subject UNIQUE"
-        text provider_subject
-        text email "nullable"
+    emailPasswordCredentials["email_password_credentials"] {
+        uuid user_id PK,FK
+        text email
+        text email_lookup_key UK
+        text password_hash
+        timestamptz password_changed_at
     }
     preferenceVersions["user_preference_versions"] {
         uuid id PK
@@ -177,7 +177,7 @@ erDiagram
 
 | 부모 → 자식 | 카디널리티 | FK·의미 |
 |---|---|---|
-| app_users → auth_identities | 1 : 0..1 | 등록 과정에는 없을 수 있고 완료 계정은 선택한 로그인 1종을 연결. 다중 로그인 확장 아님 |
+| app_users → email_password_credentials | 1 : 0..1 | 이메일·비밀번호 자격증명 1개. 공급자 로그인·자동 회원가입 없음 |
 | app_users → user_preference_versions | 1 : 0..N | 온보딩 전 0, 완료 이후 1개 이상. 매 수정마다 새 버전 |
 | app_users → memories | 1 : 0..N | 소유자. LETTER_COPY의 owner는 보관한 수신자 |
 | places → memories | 1 : 0..N | 모든 경험은 선택한 내부 핀을 참조 |
@@ -258,19 +258,19 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `updated_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 서버가 쓰기 때 갱신. DEFAULT만으로 UPDATE 시 자동 변경되지는 않음 |
 
 
-### 4.2 `auth_identities`
+### 4.2 `email_password_credentials`
 
-user_id UNIQUE로 현재 계정당 로그인 식별자 하나다. 다중 소셜 연결 기능을 추가한 것이 아니다. 토큰 원문·비밀번호는 이 테이블에 저장하지 않는다.
+최신 이메일·비밀번호 인증 계약에 따라 이전 `auth_identities` 제안을 대체한다. `user_id`가 PK·FK이고 이메일 조회키는 UNIQUE다. 원문 비밀번호·복호화 가능한 비밀번호·토큰 원문을 저장하지 않는다.
 
 | 컬럼 | 타입 | NULL | 키·기본값 | 의미 |
 |---|---|---|---|---|
-| `id` | `uuid` | 불가 | PK, 기본 gen_random_uuid() | 행 식별자 |
-| `user_id` | `uuid` | 불가 | FK | 대상/소유 계정 |
-| `provider` | `text` | 불가 | — | 선택한 로그인 공급자/방식 코드 |
-| `provider_subject` | `text` | 불가 | — | 공급자가 인증한 안정적인 주체 식별자 |
-| `email` | `text` | 가능 | — | 선택적 연락/표시 정보. 식별 PK 아님 |
-| `email_verified` | `boolean` | 불가 | 기본 false | 공급자의 이메일 확인 상태. 무조건 신뢰하지 않음 |
-| `created_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 행 생성 시각 |
+| `user_id` | `uuid` | 불가 | PK, FK → app_users | 대상 계정 |
+| `email` | `text` | 불가 | — | 로그인·응답 이메일 |
+| `email_lookup_key` | `text` | 불가 | UNIQUE | 계정 준비·로그인에 동일 규칙을 적용한 조회키 |
+| `password_hash` | `text` | 불가 | — | PasswordEncoder로 검증하는 비밀번호 해시 |
+| `password_changed_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 마지막 자격증명 변경 시각 |
+| `created_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 생성 시각 |
+| `updated_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 마지막 갱신 시각 |
 
 
 ### 4.3 `user_preference_versions`
@@ -422,7 +422,8 @@ user_id UNIQUE로 현재 계정당 로그인 식별자 하나다. 다중 소셜 
 | `id` | `uuid` | 불가 | PK, 기본 gen_random_uuid() | 행 식별자 |
 | `reporter_id` | `uuid` | 불가 | FK | 신고자. 신고 권한은 서비스에서 확인 |
 | `memory_id` | `uuid` | 불가 | FK | 대상 경험. memory_categories에서는 PK 일부 |
-| `reason` | `text` | 불가 | — | 신고 사유. 자유문 입력 제안 |
+| `reason` | `text` | 불가 | — | API_SPEC의 7종 신고 사유 코드 |
+| `details` | `text` | 가능 | — | API_SPEC 보완안의 선택 신고 설명 |
 | `status` | `text` | 불가 | 기본 'OPEN' | 해당 객체의 작업/처리 상태 |
 | `handled_by` | `uuid` | 가능 | FK | 처리 담당 계정. 운영자 인가는 별도 검사 |
 | `handling_note` | `text` | 가능 | — | 내부 처리 메모. 수신자에게 노출하지 않음 |
@@ -558,7 +559,7 @@ score = (crowd 같음 ? 1 : 0)
 
 | 조회 | 인덱스/키 |
 |---|---|
-| 로그인 사용자 해석 | auth_identities(provider, provider_subject) UNIQUE |
+| 로그인 사용자 해석 | email_password_credentials(email_lookup_key) UNIQUE |
 | 특정 시각의 취향 | preferences(user_id, effective_at DESC, revision DESC) |
 | 시간 범위의 유효 LETTER | memories(available_at,id), ACTIVE·APPROVED·LETTER 부분 인덱스 |
 | 내 기록·BOOKMARK | memories(owner_id,created_at DESC,id DESC), PRIVATE 부분 인덱스 |
@@ -673,7 +674,7 @@ app_users의 수신 위치, 과거 preference 버전, 최종 Memory 본문·분�
 | validation/schema_smoke_test.sql | 빈 테스트 DB에서 실행할 제약 회귀 시나리오 |
 | validation/static_validation.json | 이 작업에서 수행한 정적·산술 점검 결과 |
 
-V1/V2를 기존 Spring 프로젝트의 Flyway 마이그레이션 위치로 옮기되 이미 V1을 사용한다면 번호를 조정한다. 검증 DB에서 먼저 적용하고 JPA 자동 DDL 생성과 병행하지 않는다. ORM을 사용한다면 검증 모드·엔티티 매핑은 별도 작업이다.
+실제 저장소에서는 기존 `V1__init.sql`을 수정하지 않는다. `V2__erd_uuid_schema.sql`은 구형 6개 테이블이 모두 빈 경우에만 UUID 스키마로 전환하며, 데이터가 있으면 예외를 발생시켜 전체 트랜잭션을 중단한다. `V3__seed_place_categories.sql`이 8종 사전을 채운다. 기본 도메인 10개 외에 업로드 소유권·수명을 위한 `image_uploads`를 포함한다. 기존 데이터의 축·취향·배달 이력을 임의로 생성해 이관하지 않는다. ORM은 `ddl-auto: validate`를 유지한다.
 
 query_examples는 `:name` 형태의 바인드 파라미터를 사용하는 참고 코드이며 단독 실행 파일이 아니다. 거리 조건은 별도 서버 함수에서 반영하도록 명시했다. 쿼리 예시의 후보 조회만 복사해서 반경 검사를 생략하면 안 된다.
 
@@ -698,7 +699,7 @@ DDL 실행, 4축 NULL·0, 카테고리 4번째 행, 다른 사용자의 취향 F
 
 | 항목 | 남은 계약 |
 |---|---|
-| 인증 | 로그인 1종·초대 검증 소스. 자체 비밀번호라면 자격증명 저장 추가 |
+| 인증 | 이메일·비밀번호로 확정. 최초 초대 계정 공급·토큰 만료·로그인 제한의 운영 계약 |
 | 거리 | 고정 반경(m), 구면/타원 등 계산 방식·경계 허용오차; 사용자가 변경하는 값 아님 |
 | 위치 | 기존 가시 핀 선택과 새 핀의 Place 생성·인접 핀 묶음 방식 |
 | 입력 | 본문·설명 최대 길이, 파일 바이트·해상도, 일일 작성 제한 |

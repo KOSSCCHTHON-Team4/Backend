@@ -1,35 +1,36 @@
 package team4.emotionmap.place;
 
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.place.dto.PlaceResponse;
 
-/**
- * 장소 API.
- *   GET /places?bbox=minLng,minLat,maxLng,maxLat  -> 영역 내 핀
- */
 @RestController
-@RequestMapping("/places")
+@RequestMapping("/v1/places")
 @RequiredArgsConstructor
 public class PlaceController {
-
     private final PlaceService placeService;
 
     @GetMapping
-    public List<PlaceResponse> byBoundingBox(@RequestParam("bbox") String bbox) {
-        // bbox = "minLng,minLat,maxLng,maxLat"
-        String[] p = bbox.split(",");
-        if (p.length != 4) {
-            throw new IllegalArgumentException("bbox 형식은 minLng,minLat,maxLng,maxLat 이어야 합니다.");
+    public List<PlaceResponse> byBoundingBox(@AuthenticationPrincipal UUID userId,
+                                           @RequestParam("bbox") String bbox) {
+        String[] parts = bbox.split(",", -1);
+        if (parts.length != 4) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Expected minLng,minLat,maxLng,maxLat");
         }
-        double minLng = Double.parseDouble(p[0].trim());
-        double minLat = Double.parseDouble(p[1].trim());
-        double maxLng = Double.parseDouble(p[2].trim());
-        double maxLat = Double.parseDouble(p[3].trim());
-        return placeService.findInBoundingBox(minLng, minLat, maxLng, maxLat);
+        try {
+            return placeService.findInBoundingBox(userId,
+                    Double.parseDouble(parts[0].trim()), Double.parseDouble(parts[1].trim()),
+                    Double.parseDouble(parts[2].trim()), Double.parseDouble(parts[3].trim()));
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid bounding box", e);
+        }
     }
 }

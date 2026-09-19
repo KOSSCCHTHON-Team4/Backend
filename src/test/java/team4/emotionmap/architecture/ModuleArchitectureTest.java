@@ -12,6 +12,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,20 @@ class ModuleArchitectureTest {
     private static final String ROOT = "team4.emotionmap";
     private static final List<String> MODULES =
             List.of("account", "memory", "place", "letter", "report", "media", "platform");
+    // Explicit same-DB contracts used by cross-domain transactions. No wildcard
+    // package access: adding a dependency still requires reviewing this boundary.
+    private static final Map<String, List<String>> PUBLIC_CONTRACTS = Map.of(
+            "account", List.of("platform.security.JwtTokenProvider", "platform.security.AccountAccessGuard"),
+            "memory", List.of("account.User", "account.UserRepository", "account.AccountAccessService", "account.dto.Atmospheres",
+                    "media.ImageStorageService", "media.ImageUpload", "media.ImageUploadService", "media.StoredImage",
+                    "place.Place", "place.PlaceRepository", "place.PlaceCategory", "place.PlaceCategoryRepository"),
+            "media", List.of("account.User", "account.UserRepository", "account.AccountAccessService"),
+            "letter", List.of("account.AccountAccessService", "account.User", "account.UserRepository",
+                    "media.ImageStorageService", "memory.DistributionType", "memory.Memory",
+                    "memory.MemoryAccessService", "memory.MemoryCategory", "memory.MemoryCategoryRepository",
+                    "memory.MemoryRepository", "memory.MemoryReadAccess"),
+            "report", List.of("account.AccountAccessService", "account.User",
+                    "memory.MemoryAccessService", "memory.Memory"));
     private static final JavaClasses PRODUCTION_CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages(ROOT);
@@ -50,14 +65,15 @@ class ModuleArchitectureTest {
             DescribedPredicate<JavaClass> allowedDependencies =
                     resideOutsideOfPackage(ROOT + "..")
                             .or(resideInAPackage(ROOT + "." + module + ".."));
-            if (module.equals("account")) {
-                allowedDependencies = allowedDependencies.or(DescribedPredicate.describe(
-                        "계정 모듈에 공개한 JWT 발급 API",
-                        type -> type.getName().equals(ROOT + ".platform.security.JwtTokenProvider")));
-            }
+            List<String> contracts = PUBLIC_CONTRACTS.getOrDefault(module, List.of());
+            allowedDependencies = allowedDependencies.or(DescribedPredicate.describe(
+                    "명시적으로 공개한 동일 DB 트랜잭션·읽기 계약",
+                    type -> contracts.stream().anyMatch(contract ->
+                            type.getName().equals(ROOT + "." + contract)
+                                    || type.getName().startsWith(ROOT + "." + contract + "$"))));
             classes().that().resideInAPackage(ROOT + "." + module + "..")
                     .should().onlyDependOnClassesThat(allowedDependencies)
-                    .because("다른 모듈의 엔티티·저장소·내부 서비스를 직접 사용하지 않는다")
+                    .because("다른 모듈에는 명시적으로 검토한 공개 계약으로만 접근한다")
                     .check(PRODUCTION_CLASSES);
         }));
     }

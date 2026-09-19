@@ -10,17 +10,17 @@
 
 | 메서드 | 경로 | 작업 | 구현 범위 |
 |---|---|---|---|
-| GET | `/letters/today` | B03 | 일일 내부 상태→FE 5상태·사유·삭제 안내 |
-| GET | `/letters` | B03 | 실제 수신 기록만; OR/AND 필터·커서 |
-| PATCH | `/letters/{deliveryId}/read` | B03 | 수신자 확인, 최초 readAt 보존 |
-| POST | `/letters/{deliveryId}/like` | B04 | 일회성 보관 트랜잭션·독립 복사·중복 성공 응답 |
-| GET | `/bookmarks` | B05 | 본인 PRIVATE 목록, DIRECT/LETTER_COPY 구분 |
-| GET | `/memories/{id}` | B05 | 역할별 상세 응답·ownerState·열람 권한 |
-| DELETE | `/memories/{id}` | B05 | 본인 일반 삭제; 수신·좋아요 이력 및 독립 사본 유지 |
-| GET | `/users/me/memories` | B05 | type=LETTER 조회, 누적 좋아요 수, 반응자 비노출 |
-| GET | `/places` | B05 | 권한 있는 핀·개수만 bbox 조회; 자동 병합 없음 |
-| GET | `/places/{id}/memories` | B05 | 가시 장소 경험만 조회; 페이지 중복 방지 |
-| POST | `/reports` | B06 | 열람 권한·사유·details·중복 제출 방지·접수증 |
+| GET | `/v1/letters/today` | B03 | 일일 내부 상태→FE 5상태·사유·삭제 안내 |
+| GET | `/v1/letters` | B03 | 실제 수신 기록만; OR/AND 필터·커서 |
+| PATCH | `/v1/letters/{deliveryId}/read` | B03 | 수신자 확인, 최초 readAt 보존 |
+| POST | `/v1/letters/{deliveryId}/like` | B04 | 일회성 보관 트랜잭션·독립 복사·중복 성공 응답 |
+| GET | `/v1/bookmarks` | B05 | 본인 PRIVATE 목록, DIRECT/LETTER_COPY 구분 |
+| GET | `/v1/memories/{id}` | B05 | 역할별 상세 응답·ownerState·열람 권한 |
+| DELETE | `/v1/memories/{id}` | B05 | 본인 일반 삭제; 수신·좋아요 이력 및 독립 사본 유지 |
+| GET | `/v1/users/me/memories` | B05 | type=LETTER 조회, 누적 좋아요 수, 반응자 비노출 |
+| GET | `/v1/places` | B05 | 권한 있는 핀·개수만 bbox 조회; 자동 병합 없음 |
+| GET | `/v1/places/{id}/memories` | B05 | 가시 장소 경험만 조회; 페이지 중복 방지 |
+| POST | `/v1/reports` | B06 | 열람 권한·사유·details·중복 제출 방지·접수증 |
 
 ## 담당 작업
 
@@ -109,7 +109,7 @@
 ### B06. 신고 접수와 최소 운영 처리
 
 **선행 입력:** C04/C07, A01 계정 상태 변경 포트, A07 원문 숨김 포트; 신고 코드/운영자 정책  
-**산출물:** POST /reports, reports.details migration, 제한된 운영 명령/내부 도구, 처리 기록·운영 runbook
+**산출물:** POST /v1/reports, reports.details migration, 제한된 운영 명령/내부 도구, 처리 기록·운영 runbook
 
 - 현재 열람 가능한 경험만 신고하고 reason 코드·선택 details를 검증한다. 동일 제출 재요청은 C07으로 같은 접수증을 반환한다.
 - 신고 접수 성공을 즉시 콘텐츠 차단 완료로 표현하지 않는다. 새 신고 자체를 임의 UNIQUE로 금지하지 않는다.

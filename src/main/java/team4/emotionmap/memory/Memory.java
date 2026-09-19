@@ -8,105 +8,147 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.OffsetDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.Array;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
-/**
- * memory 테이블 매핑 (V1__init.sql). 장소에 남긴 기억.
- *
- * 도메인 규칙:
- *   - emotionTag : 서버가 content 에서 Claude(sonnet-5) 로 자동 추출해 채운다.
- *                  생성 시점엔 보통 null 이고, 추출 후 assignEmotionTag() 로 채운다.
- *                  (API 요청에서 감정을 직접 받지 않는다.)
- *   - embedding  : pgvector vector(1024). 임베딩 모델(Voyage 등)로 생성해 채운다.
- *                  Claude 는 임베딩 모델이 아니므로 여기엔 쓰지 않는다. 생성 전엔 null.
- *   - visibility : LETTER / PRIVATE
- *   - status     : ACTIVE / HIDDEN / DELETED (기본 ACTIVE)
- *   - userId/placeId 는 우선 FK 값만 보관(해커톤 단순화). 필요 시 @ManyToOne 확장.
- */
 @Entity
-@Table(name = "memory")
+@Table(name = "memories")
 @Getter
+@Builder(toBuilder = true)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class Memory {
-
-    /** DB vector(N) 과 일치시킬 임베딩 차원. 임베딩 모델 확정 시 마이그레이션과 함께 바꾼다. */
-    public static final int EMBEDDING_DIMENSION = 1024;
-
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
+    @Column(name = "owner_id", nullable = false)
+    private UUID ownerId;
 
-    @Column(name = "place_id")
-    private Long placeId;
+    @Column(name = "place_id", nullable = false)
+    private UUID placeId;
 
-    @Column(nullable = false, length = 2000)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "distribution_type", nullable = false, columnDefinition = "text")
+    private DistributionType distributionType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "origin_kind", nullable = false, columnDefinition = "text")
+    private OriginKind originKind;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "data_origin", nullable = false, columnDefinition = "text")
+    private DataOrigin dataOrigin;
+
+    @Column(nullable = false, columnDefinition = "text")
     private String content;
 
-    @Column(length = 500)
+    @Column(name = "place_label_snapshot", columnDefinition = "text")
+    private String placeLabelSnapshot;
+
+    @Column(name = "place_lat", nullable = false)
+    private Double placeLat;
+
+    @Column(name = "place_lng", nullable = false)
+    private Double placeLng;
+
+    @Column(name = "crowd_level", nullable = false)
+    private Short crowdLevel;
+
+    @Column(name = "spatial_feel", nullable = false)
+    private Short spatialFeel;
+
+    @Column(name = "company_fit", nullable = false)
+    private Short companyFit;
+
+    @Column(name = "stay_style", nullable = false)
+    private Short stayStyle;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "crowd_source", nullable = false, columnDefinition = "text")
+    private ValueSource crowdSource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "spatial_source", nullable = false, columnDefinition = "text")
+    private ValueSource spatialSource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "company_source", nullable = false, columnDefinition = "text")
+    private ValueSource companySource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stay_source", nullable = false, columnDefinition = "text")
+    private ValueSource staySource;
+
+    @Builder.Default
+    @Column(name = "axis_definition_version", nullable = false)
+    private Short axisDefinitionVersion = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "atmosphere_analysis_status", nullable = false, columnDefinition = "text")
+    private AtmosphereAnalysisStatus atmosphereAnalysisStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category_analysis_status", nullable = false, columnDefinition = "text")
+    private CategoryAnalysisStatus categoryAnalysisStatus;
+
+    @Column(name = "analysis_model", columnDefinition = "text")
+    private String analysisModel;
+
+    @Column(name = "analysis_prompt_version", columnDefinition = "text")
+    private String analysisPromptVersion;
+
+    @Column(name = "image_path", unique = true, columnDefinition = "text")
     private String imagePath;
 
+    @Column(name = "image_media_type", columnDefinition = "text")
+    private String imageMediaType;
+
+    @Column(name = "image_size_bytes")
+    private Long imageSizeBytes;
+
+    @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private Visibility visibility;
+    @Column(name = "content_status", nullable = false, columnDefinition = "text")
+    private ContentStatus contentStatus = ContentStatus.ACTIVE;
 
-    /** 본문에서 Claude 로 자동 추출한 감정 태그. 추출 전에는 null. */
+    @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(name = "emotion_tag", length = 30)
-    private Emotion emotionTag;
+    @Column(name = "moderation_status", nullable = false, columnDefinition = "text")
+    private ModerationStatus moderationStatus = ModerationStatus.PENDING;
 
-    // ---- pgvector: vector(1024) 매핑 (임베딩 모델 추후 확정) ----
-    @JdbcTypeCode(SqlTypes.VECTOR)
-    @Array(length = EMBEDDING_DIMENSION)
-    @Column(columnDefinition = "vector(1024)")
-    private float[] embedding;
+    @Column(name = "available_at")
+    private Instant availableAt;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private MemoryStatus status;
+    @Builder.Default
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
 
-    @Column(nullable = false)
-    private OffsetDateTime createdAt;
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
-    @Builder
-    private Memory(Long userId, Long placeId, String content, String imagePath,
-                   Visibility visibility) {
-        this.userId = userId;
-        this.placeId = placeId;
-        this.content = content;
-        this.imagePath = imagePath;
-        this.visibility = visibility;
-        this.status = MemoryStatus.ACTIVE;
-        this.createdAt = OffsetDateTime.now();
-        // emotionTag, embedding 은 생성 후 서버가 채운다.
+    public void softDelete(Instant deletedAt) {
+        this.contentStatus = ContentStatus.DELETED;
+        this.deletedAt = deletedAt;
     }
 
-    /** 본문에서 Claude 로 추출한 감정 태그를 채운다. */
-    public void assignEmotionTag(Emotion emotionTag) {
-        this.emotionTag = emotionTag;
-    }
-
-    /** 임베딩 모델이 생성한 벡터를 채운다. */
-    public void assignEmbedding(float[] embedding) {
-        this.embedding = embedding;
-    }
-
-    /** 신고 등으로 숨김 처리. */
     public void hide() {
-        this.status = MemoryStatus.HIDDEN;
+        this.contentStatus = ContentStatus.HIDDEN;
     }
 
-    /** 삭제 표시(소프트). 하드 삭제는 repository.delete 로 수행. */
-    public void markDeleted() {
-        this.status = MemoryStatus.DELETED;
+    public Memory copyForOwner(UUID ownerId, String independentImagePath) {
+        if ((imagePath == null) != (independentImagePath == null)
+                || (imagePath != null && imagePath.equals(independentImagePath))) {
+            throw new IllegalArgumentException("A saved copy requires an independent image path");
+        }
+        return toBuilder().id(null).ownerId(ownerId)
+                .distributionType(DistributionType.PRIVATE).originKind(OriginKind.LETTER_COPY)
+                .imagePath(independentImagePath).contentStatus(ContentStatus.ACTIVE)
+                .availableAt(null).createdAt(Instant.now()).deletedAt(null).build();
     }
 }

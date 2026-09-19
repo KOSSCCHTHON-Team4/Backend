@@ -1,13 +1,14 @@
 package team4.emotionmap.media.dto;
 
-/**
- * 이미지 업로드 응답.
- *   key : DB(memory.image_path)에 저장할 이미지 키
- *   url : 클라이언트가 이미지를 조회할 경로 (바이너리 조회 API)
- */
-public record ImageUploadResponse(String key, String url) {
+import java.time.Instant;
+import java.util.UUID;
+import team4.emotionmap.media.ImageUpload;
 
-    public static ImageUploadResponse of(String key) {
-        return new ImageUploadResponse(key, "/api/images/" + key);
+public record ImageUploadResponse(
+        UUID imageId, Instant expiresAt, String mediaType, long sizeBytes, int width, int height
+) {
+    public static ImageUploadResponse from(ImageUpload upload) {
+        return new ImageUploadResponse(upload.getId(), upload.getExpiresAt(), upload.getMediaType(),
+                upload.getSizeBytes(), upload.getWidth(), upload.getHeight());
     }
 }

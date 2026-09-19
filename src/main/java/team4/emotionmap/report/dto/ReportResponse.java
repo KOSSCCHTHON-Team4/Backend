@@ -1,20 +1,21 @@
 package team4.emotionmap.report.dto;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import team4.emotionmap.report.Report;
+import team4.emotionmap.report.ReportReason;
+import team4.emotionmap.report.ReportStatus;
 
-/**
- * 신고 응답 DTO.
- */
 public record ReportResponse(
-        Long id,
-        Long reporterId,
-        Long memoryId,
-        String reason,
-        OffsetDateTime createdAt
+        UUID id,
+        UUID memoryId,
+        ReportReason reason,
+        String details,
+        ReportStatus status,
+        Instant createdAt
 ) {
-    public static ReportResponse from(Report r) {
-        return new ReportResponse(
-                r.getId(), r.getReporterId(), r.getMemoryId(), r.getReason(), r.getCreatedAt());
+    public static ReportResponse from(Report report) {
+        return new ReportResponse(report.getId(), report.getMemoryId(), report.getReason(),
+                report.getDetails(), report.getStatus(), report.getCreatedAt());
     }
 }

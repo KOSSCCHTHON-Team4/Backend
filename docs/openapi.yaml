@@ -3,10 +3,10 @@ info:
   title: 감정지도 MVP API 계약 초안
   version: 0.2.0-draft
   description: '기준: MVP 1.4-final + ERD 1.0 + FE v2 + 사용자 이메일·비밀번호 전용 로그인 확정. 로그인 요청은 email/password 하나만 지원한다. 나머지
-    신규 DTO·저장구조·토큰 TTL·수치 한도는 검토용 계약 초안이다. 예시는 mock이며 서비스 실데이터/설정이 아니다. 기존 22개 경로를 유지한다.'
+    신규 DTO·저장구조·토큰 TTL·수치 한도는 검토용 계약 초안이다. 예시는 mock이며 서비스 실데이터/설정이 아니다. 참여자용 22개 경로에 /v1 접두어를 적용한다.'
 servers:
 - url: /
-  description: 배포 시 API origin/baseURL을 설정. 임의 생산 도메인을 확정하지 않음
+  description: 배포 origin을 설정. paths에 /v1이 포함되어 있으므로 서버 URL에 중복 추가하지 않음
 tags:
 - name: Auth
 - name: Config
@@ -20,7 +20,7 @@ tags:
 security:
 - bearerAuth: []
 paths:
-  /auth/login:
+  /v1/auth/login:
     post:
       operationId: login
       summary: 로그인 및 초기 설정 여부
@@ -257,7 +257,7 @@ paths:
                 value:
                   email: tester@example.invalid
                   password: example-only-not-a-real-password
-  /config:
+  /v1/config:
     get:
       operationId: getConfig
       summary: 고정 반경·제한·정기 배달 설정
@@ -432,7 +432,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /atmosphere-axes:
+  /v1/atmosphere-axes:
     get:
       operationId: getAtmosphereAxes
       summary: 확정 분위기4축 사전
@@ -602,7 +602,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /place-categories:
+  /v1/place-categories:
     get:
       operationId: getPlaceCategories
       summary: 자체 장소 카테고리8종
@@ -776,7 +776,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /users/me:
+  /v1/users/me:
     get:
       operationId: getMe
       summary: 본인 설정·온보딩 상태
@@ -942,7 +942,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /users/me/onboarding:
+  /v1/users/me/onboarding:
     post:
       operationId: completeOnboarding
       summary: 최초 위치·4축 설정
@@ -1210,7 +1210,7 @@ paths:
                     COMPANY_FIT: -1
                     STAY_STYLE: -1
                   preferenceDescription: 혼자 책을 읽으며 오래 머물 수 있는 아늑한 곳을 좋아해요.
-  /users/me/preferences:
+  /v1/users/me/preferences:
     patch:
       operationId: updatePreferences
       summary: 4축·자연어 취향 변경
@@ -1491,7 +1491,7 @@ paths:
                     STAY_STYLE: -1
                   preferenceDescription: 친구와 조용히 대화할 수 있는 공간을 좋아해요.
                   expectedPreferenceVersion: '1'
-  /memories/analyze:
+  /v1/memories/analyze:
     post:
       operationId: analyzeMemory
       summary: 본문의 분위기·카테고리 AI 제안
@@ -1780,7 +1780,7 @@ paths:
               valid:
                 value:
                   content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-  /memories:
+  /v1/memories:
     post:
       operationId: createMemory
       summary: LETTER 또는 직접 PRIVATE 생성
@@ -1815,7 +1815,7 @@ paths:
                     originKind: DIRECT
                     dataOrigin: TEAM_TEST
                     content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                    imageUrl: /memories/30000000-0000-4000-8000-000000000002/image
+                    imageUrl: /v1/memories/30000000-0000-4000-8000-000000000002/image
                     atmospheres:
                       CROWD_LEVEL: -1
                       SPATIAL_FEEL: -1
@@ -1863,7 +1863,7 @@ paths:
                     originKind: DIRECT
                     dataOrigin: TEAM_TEST
                     content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                    imageUrl: /memories/30000000-0000-4000-8000-000000000002/image
+                    imageUrl: /v1/memories/30000000-0000-4000-8000-000000000002/image
                     atmospheres:
                       CROWD_LEVEL: -1
                       SPATIAL_FEEL: -1
@@ -2283,7 +2283,7 @@ paths:
                     STAY_STYLE: -1
                   categoryCodes: []
                   analysisToken: null
-  /images:
+  /v1/images:
     post:
       operationId: uploadImage
       summary: JPEG/PNG1장 선행 업로드
@@ -2677,7 +2677,7 @@ paths:
             encoding:
               file:
                 contentType: image/jpeg, image/png
-  /memories/{id}/image:
+  /v1/memories/{id}/image:
     get:
       operationId: getMemoryImage
       summary: 권한 확인 후 경험 이미지
@@ -2890,7 +2890,7 @@ paths:
         schema:
           type: string
           format: uuid
-  /letters/today:
+  /v1/letters/today:
     get:
       operationId: getTodayLetter
       summary: 오늘 배달 상태 조회
@@ -2936,7 +2936,7 @@ paths:
                       availability: AVAILABLE
                       unavailableReason: null
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000001/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000001/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -3168,7 +3168,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  /letters:
+  /v1/letters:
     get:
       operationId: listLetters
       summary: 누적 수신함·조회 필터
@@ -3207,7 +3207,7 @@ paths:
                       availability: AVAILABLE
                       unavailableReason: null
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000001/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000001/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -3478,11 +3478,11 @@ paths:
       - name: limit
         in: query
         required: false
-        description: 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
         schema:
           type: integer
           minimum: 1
-  /letters/{deliveryId}/read:
+  /v1/letters/{deliveryId}/read:
     patch:
       operationId: markLetterRead
       summary: 최초 읽음 기록
@@ -3686,7 +3686,7 @@ paths:
         schema:
           type: string
           format: uuid
-  /letters/{deliveryId}/like:
+  /v1/letters/{deliveryId}/like:
     post:
       operationId: likeAndCopyLetter
       summary: 일회성 좋아요·독립 PRIVATE 복사
@@ -3906,7 +3906,7 @@ paths:
         schema:
           type: string
           format: uuid
-  /bookmarks:
+  /v1/bookmarks:
     get:
       operationId: listBookmarks
       summary: 내 PRIVATE 보관함
@@ -3941,7 +3941,7 @@ paths:
                       originKind: LETTER_COPY
                       dataOrigin: TEAM_TEST
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000003/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000003/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -4142,11 +4142,11 @@ paths:
       - name: limit
         in: query
         required: false
-        description: 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
         schema:
           type: integer
           minimum: 1
-  /memories/{id}:
+  /v1/memories/{id}:
     get:
       operationId: getMemory
       summary: 경험 상세·작성자 상태
@@ -4180,7 +4180,7 @@ paths:
                     originKind: DIRECT
                     dataOrigin: TEAM_TEST
                     content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                    imageUrl: /memories/30000000-0000-4000-8000-000000000002/image
+                    imageUrl: /v1/memories/30000000-0000-4000-8000-000000000002/image
                     atmospheres:
                       CROWD_LEVEL: -1
                       SPATIAL_FEEL: -1
@@ -4212,7 +4212,7 @@ paths:
                     originKind: DIRECT
                     dataOrigin: TEAM_TEST
                     content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                    imageUrl: /memories/30000000-0000-4000-8000-000000000001/image
+                    imageUrl: /v1/memories/30000000-0000-4000-8000-000000000001/image
                     atmospheres:
                       CROWD_LEVEL: -1
                       SPATIAL_FEEL: -1
@@ -4243,7 +4243,7 @@ paths:
                     originKind: LETTER_COPY
                     dataOrigin: TEAM_TEST
                     content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                    imageUrl: /memories/30000000-0000-4000-8000-000000000003/image
+                    imageUrl: /v1/memories/30000000-0000-4000-8000-000000000003/image
                     atmospheres:
                       CROWD_LEVEL: -1
                       SPATIAL_FEEL: -1
@@ -4612,7 +4612,7 @@ paths:
         schema:
           type: string
           format: uuid
-  /users/me/memories:
+  /v1/users/me/memories:
     get:
       operationId: listMyLetters
       summary: 내가 보낸 LETTER·누적 반응
@@ -4647,7 +4647,7 @@ paths:
                       originKind: DIRECT
                       dataOrigin: TEAM_TEST
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000002/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000002/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -4835,7 +4835,7 @@ paths:
       - name: type
         in: query
         required: true
-        description: 이번계약은LETTER만. PRIVATE는/bookmarks
+        description: 이번계약은LETTER만. PRIVATE는/v1/bookmarks
         schema:
           type: string
           enum:
@@ -4850,11 +4850,11 @@ paths:
       - name: limit
         in: query
         required: false
-        description: 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
         schema:
           type: integer
           minimum: 1
-  /places:
+  /v1/places:
     get:
       operationId: listVisiblePlaces
       summary: 현재 사용자 권한 내 지도 핀
@@ -5080,11 +5080,11 @@ paths:
       - name: limit
         in: query
         required: false
-        description: 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
         schema:
           type: integer
           minimum: 1
-  /places/{id}/memories:
+  /v1/places/{id}/memories:
     get:
       operationId: listVisiblePlaceMemories
       summary: 한 내부 핀의 권한 있는 경험
@@ -5119,7 +5119,7 @@ paths:
                       originKind: DIRECT
                       dataOrigin: TEAM_TEST
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000001/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000001/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -5148,7 +5148,7 @@ paths:
                       originKind: LETTER_COPY
                       dataOrigin: TEAM_TEST
                       content: 작은 카페의 조용한 창가에서 친구와 함께 책을 읽었다. 작업용 책상이 있고 오래 머물기 편한 아늑한 공간이었다.
-                      imageUrl: /memories/30000000-0000-4000-8000-000000000003/image
+                      imageUrl: /v1/memories/30000000-0000-4000-8000-000000000003/image
                       atmospheres:
                         CROWD_LEVEL: -1
                         SPATIAL_FEEL: -1
@@ -5373,11 +5373,11 @@ paths:
       - name: limit
         in: query
         required: false
-        description: 생략 시 /config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
         schema:
           type: integer
           minimum: 1
-  /reports:
+  /v1/reports:
     post:
       operationId: createReport
       summary: 열람 가능한 경험 신고 접수
