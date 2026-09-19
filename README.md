@@ -179,7 +179,9 @@ DB와 계정이 이미 있다면 생성 명령을 반복하지 않습니다. `ps
 
 - DB 연결: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 기본 로컬 설정을 변경합니다.
 - 프로필: `SPRING_PROFILES_ACTIVE=local|ci|prod`. `ci`는 DB 없는 테스트용이지 독립적인 앱 부팅용이 아닙니다.
-- JWT 시크릿은 `JWT_SECRET`, 업로드 경로는 `APP_UPLOAD_DIR`로 설정합니다. 배포 시 개발용 기본 시크릿·비밀번호를 사용하지 않습니다.
+- JWT·서명 비밀은 `JWT_SECRET`·`SIGNING_SECRET`, 업로드 경로는 `APP_UPLOAD_DIR`로 설정합니다. prod의 두 비밀은 서로 다른 32바이트 이상 값이어야 하며 개발용 기본값을 거부합니다.
+- 토큰 TTL은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS` 하나로 설정합니다. 브라우저 origin은 `CORS_ALLOWED_ORIGINS`의 정확한 allowlist로 지정하며 운영 FE 주소를 추측해 허용하지 않습니다.
+- prod는 실제 AI provider와 분석·안전 검사·동률 평가 구현이 없으면 기동을 거부합니다. 현재 mock 구현만으로 운영 준비가 완료되었다고 판단하지 않습니다.
 - 실행 후 [Swagger UI](http://localhost:8080/swagger-ui.html)와 [현재 OpenAPI JSON](http://localhost:8080/v3/api-docs)을 확인할 수 있습니다. 최신 계약 YAML이 자동으로 서버에 적용되는 것은 아닙니다.
 
 DB 제약 회귀 검증은 전체 마이그레이션이 적용된 **별도 테스트 DB**에서 실행합니다. 합성 fixture는 트랜잭션 끝에 롤백됩니다.
