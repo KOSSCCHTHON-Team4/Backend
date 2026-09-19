@@ -1,0 +1,56 @@
+# ============================================================================
+# 백엔드 전용 레포. 프로젝트 루트 = 레포 루트.
+# ============================================================================
+
+# ===== Gradle =====
+.gradle/
+build/
+# wrapper JAR 은 반드시 커밋 (팀 전원 동일 Gradle 버전 보장)
+!gradle/wrapper/gradle-wrapper.jar
+
+# ===== Java =====
+*.class
+*.log
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+*.iws
+*.ipr
+out/
+
+# ===== OS =====
+.DS_Store
+
+# ===== 앱 런타임 산출물 =====
+# 사진 업로드 로컬 저장소 (코드가 아닌 데이터이므로 커밋 금지)
+uploads/
+
+# ===== DB 데이터 / 덤프 업로드 방지 (정책: DB 는 각자 로컬, GitHub 업로드 금지) =====
+# 스키마 형상관리인 Flyway 마이그레이션(src/main/resources/db/migration/*.sql)은
+# 코드이므로 커밋한다. 아래는 "데이터" 파일들이라 절대 커밋하지 않는다.
+*.sql.gz
+*.dump
+*.bak
+*.backup
+*.tar
+*.csv
+*.tsv
+*.pgdata
+pgdata/
+data/
+db-data/
+dumps/
+backup/
+backups/
+*.sqlite
+*.sqlite3
+*.db
+
+# ===== 로컬 개인 오버라이드 / 시크릿 =====
+# 각자 로컬에서만 쓰는 민감값(DB 접속정보, JWT_SECRET, EMBEDDING_API_KEY 등)은
+# 이 파일들에 두고 커밋하지 않는다.
+application-local-secret.yml
+.env
+.env.*

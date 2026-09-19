@@ -1,0 +1,30 @@
+# ============================================================================
+# application-prod.yml  (배포용 — 로컬 배포 포함)
+#   !!! 민감값을 파일에 절대 하드코딩하지 않는다 !!!
+#   모든 비밀은 환경변수로 주입한다. 이 파일 자체는 커밋해도 안전하다.
+#     예) DB_URL, DB_USERNAME, DB_PASSWORD, APP_UPLOAD_DIR 를 환경변수로 설정
+# ============================================================================
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    show-sql: false
+
+app:
+  storage:
+    # 배포 환경에서는 컨테이너/서버의 영속 볼륨 경로를 환경변수로 지정
+    upload-dir: ${APP_UPLOAD_DIR:/var/lib/emotionmap/uploads}
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    team4.emotionmap: INFO

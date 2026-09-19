@@ -1,0 +1,26 @@
+# ============================================================================
+# application-local.yml  (로컬 개발용 — 각자 로컬 PostgreSQL 17 + pgvector)
+#   Docker 를 사용하지 않는다. 각자 자기 PC 에 PostgreSQL 17 을 직접 설치하고
+#   pgvector 확장을 활성화한 뒤 아래 값에 맞춰 DB/계정을 만든다.
+#   (설치 방법은 README / ARCHITECTURE.md 참고)
+#
+#   접속 정보가 각자 다르면 이 파일을 고치는 대신 환경변수로 오버라이드하는 것을
+#   권장한다:  DB_URL / DB_USERNAME / DB_PASSWORD
+# ============================================================================
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/emotionmap}
+    username: ${DB_USERNAME:emotionmap}
+    password: ${DB_PASSWORD:emotionmap}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    team4.emotionmap: DEBUG
