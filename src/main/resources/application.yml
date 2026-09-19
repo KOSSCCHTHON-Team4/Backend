@@ -12,13 +12,6 @@ spring:
     # 아무것도 지정하지 않으면 local 로 실행된다.
     default: local
 
-  # 이미지 업로드(multipart) 크기 제한. app.storage.max-size-bytes 와 맞춘다(10MB).
-  # 초과 시 스프링이 요청을 거부한다(서비스 로직에 도달하기 전 1차 방어).
-  servlet:
-    multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
-
   jpa:
     open-in-view: false          # OSIV 비활성화 (권장)
     hibernate:
@@ -41,9 +34,9 @@ app:
   storage:
     # 프로필별로 오버라이드. 여기서는 안전한 기본값만 둔다.
     upload-dir: ${APP_UPLOAD_DIR:./uploads}
-    # 업로드 검증: 허용 확장자와 최대 크기. 무제한 업로드는 위험하므로 반드시 둔다.
-    allowed-extensions: ${APP_STORAGE_ALLOWED_EXT:jpg,jpeg,png}
-    max-size-bytes: ${APP_STORAGE_MAX_SIZE_BYTES:10485760}   # 10 MB
+    # 파일 바이트 외 multipart 오버헤드는 배포 환경에서 양수로 명시한다.
+    # 누락·비양수·B+H 오버플로면 신규 이미지 업로드만 CONFIGURATION_UNAVAILABLE(503)으로 닫는다.
+    multipart-request-overhead-bytes: ${APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES:}
 
   # ------------------------------------------------------------------------
   # 서비스 설정 (A03 GET /config). D03 미정값 — 코드에 기본 숫자를 두지 않는다.

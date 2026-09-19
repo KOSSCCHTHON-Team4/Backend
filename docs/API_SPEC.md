@@ -915,7 +915,8 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **JPEG/PNG1장 선행 업로드** · operationId: `uploadImage` · 성공 `201`
 
-file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거. 영속 로컬 파일+업로드 메타데이터 준비 후201. imageId는 사용자 귀속 임시 자원, 외부 경로 아님. 만료/미첨부 파일은 정리, ATTACHED 파일은 임시 TTL 정리에서 제외. 별도 공개 업로드 조회 API는 없음.
+file 파트 하나. 서버는 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 영속 로컬 파일과 업로드 메타데이터로 준비한 뒤201을 반환한다. imageId는 사용자 귀속 임시 자원, 외부 경로가 아니다. 확실한 롤백의 새 파일만 정리하며 ATTACHED 파일·커밋 또는 결과 미상 파일을 지우지 않는다. 별도 공개 업로드 조회 API와 만료 파일의 주기적 정리는 없다.
+**처리 순서와 503 우선순위:** Security 인증·계정 guard → 설정/전송 gate → servlet multipart parser → 실제 입력의 bounded read → JPEG/PNG sanitizer → 파일 저장·STAGED 행이다. gate는 `POST /v1/images`의 REQUEST dispatch에만 적용하고 본문·파라미터·part를 읽지 않는다. 따라서 무인증·무효 토큰 요청은 설정과 관계없이 먼저 기존 401이고, 유효한 인증 뒤 서비스 설정이 없거나 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`가 없거나 양수가 아니거나 `B + H`가 넘치면 parser보다 먼저 `CONFIGURATION_UNAVAILABLE`(503)이다. 서비스 설정은 정상이고 전송 설정만 잘못된 경우 `/v1/config`는 정상 응답을 유지하며 업로드만 503이다. gate를 통과한 뒤에만 파일/요청 한도 413, 형식 415, 손상·빈 파일·치수 422가 적용된다. 파일 저장 I/O 503은 `IMAGE_STORAGE_UNAVAILABLE`이며 경로·원인 예외를 포함하지 않는다.
 
 | 위치 | 이름 | 필수 | 형식·의미 |
 |---|---|---|---|
@@ -947,7 +948,7 @@ file: <JPEG/PNG binary 1개>
 }
 ```
 
-**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `INVALID_REQUEST`, `IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, `INVALID_IMAGE`, `IMAGE_DIMENSIONS_EXCEEDED`, `IMAGE_UPLOAD_EXPIRED`, `IMAGE_STORAGE_UNAVAILABLE`, `RATE_LIMITED`。
+**주요 오류 코드:** `AUTH_REQUIRED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVITATION_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_CLOSED`, `SERVICE_UNAVAILABLE`, `CONFIGURATION_UNAVAILABLE`, `ONBOARDING_REQUIRED`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `REQUEST_IN_PROGRESS`, `INVALID_REQUEST`, `IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, `INVALID_IMAGE`, `IMAGE_DIMENSIONS_EXCEEDED`, `IMAGE_UPLOAD_EXPIRED`, `IMAGE_STORAGE_UNAVAILABLE`, `RATE_LIMITED`。
 
 ### 8.11 `GET /v1/memories/{id}/image`
 

@@ -152,14 +152,14 @@ SQL 검증은 합성 fixture를 롤백하며 축·카테고리 상한·복합 FK
 
 ## 12. 이미지 처리 (로컬 저장 · JSON/바이너리 API 분리)
 
-1. `POST /v1/images`에 JPG/PNG를 multipart로 전송한다.
-2. 파일을 디코딩해 실제 형식·바이트·픽셀 제한을 검사하고 재인코딩한다. UUID 파일명과 본인 소유 STAGED 메타데이터를 저장하고 `imageId`를 반환한다.
-3. `POST /v1/memories`에서 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다.
-4. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 검사한 뒤 바이너리를 반환한다. 원본 key 기반 공개 GET은 없다.
+1. `POST /v1/images`는 JPG/PNG multipart를 받는 보호 경로다. Security 인증이 성공한 뒤, `REQUEST`에만 등록된 좁은 gate가 본문·파라미터·part를 읽지 않고 서비스 설정과 전송 설정을 검사한다. 무인증 요청은 gate보다 먼저 401이고 CORS preflight는 이 gate의 대상이 아니다.
+2. gate를 통과한 요청만 servlet multipart parser로 들어간다. 파일 한도 `B`는 `ServiceConfigSource.current().limits().imageMaxBytes()`이고, 요청 한도는 파일 외 오버헤드 `H`를 더한 `B + H`다. `H`는 배포 시 양수 `APP_STORAGE_MULTIPART_REQUEST_OVERHEAD_BYTES`로 명시하며, 덧셈은 오버플로 없이 확인한다.
+3. 서비스는 현재 ACTIVE 소유자를 잠근 뒤 실제 입력을 최대 `B + 1`바이트까지 읽고, 실제 JPEG/PNG·바이트·폭·높이·픽셀을 검사하여 재인코딩한다. 그 결과만 UUID 파일명으로 저장하고 본인 소유 STAGED 메타데이터와 같은 `Instant` 기준 만료 시각을 기록해 `imageId`를 반환한다.
+4. `POST /v1/memories`에서 본인·미만료·미사용 imageId를 잠그고 경험 저장과 첨부를 같은 트랜잭션으로 확정한다. `GET /v1/memories/{id}/image`는 경험 소유/수신 권한과 상태를 검사한 뒤 바이너리를 반환한다. 원본 key 기반 공개 GET은 없다.
 
-설정: `app.storage.upload-dir`, `allowed-extensions`, `max-size-bytes`, `staging-ttl`(개발 기본 PT30M), `max-pixels`(개발 기본 20000000). 파일 최대 10MB 등 기본값은 운영 합의값이 아니다. 파일은 배포 후에도 유지되는 경로에 보관한다.
+설정: `app.storage`에는 로컬 루트 `upload-dir`과 nullable `multipart-request-overhead-bytes`만 둔다. 이미지 업무 한도와 STAGED TTL은 `app.service.limits`가 유일한 원천이며 storage 기본값으로 대체하지 않는다. `H`가 없거나 비양수이거나 `B + H`가 넘치면 앱은 기동하되 신규 이미지 업로드만 `CONFIGURATION_UNAVAILABLE`(503)으로 닫고, 서비스 설정이 정상인 `/v1/config`는 계속 제공한다. 서비스 설정 자체가 없으면 업로드와 `/v1/config` 모두 503이다. multipart 임시 위치와 file-size threshold를 설정한 경우에는 Spring의 기술 설정을 보존한다.
 
-좋아요는 별도 UUID 경로로 이미지를 복사한다. PRIVATE·분류 INSERT와 liked_at 갱신은 하나의 DB 트랜잭션이다. 확실한 롤백이면 생성한 파일만 정리하고, 커밋 여부 불명 상태에서는 잠재적으로 유효한 사본 파일을 지우지 않는다. 프로세스 중단 고아 파일·만료 이미지의 주기적 정리와 운영 보존 정책은 별도 작업이다.
+저장 중 알려진 I/O 실패는 경로·원인 예외 없이 `IMAGE_STORAGE_UNAVAILABLE`(503)으로 번역한다. 저장 또는 독립 복사 중 부분적으로 만든 파일과 확실한 트랜잭션 롤백의 파일만 정리하며, 커밋 또는 결과 미상 파일은 보존한다. 기존 이미지의 읽기·독립 복사·저장된 만료 시각 기반 첨부 판정은 신규 업로드 설정을 다시 읽지 않는다. 프로세스 중단 고아 파일·만료 이미지의 주기적 정리와 운영 보존 정책은 별도 작업이다.
 
 ## 13. API 명세 (springdoc-openapi / Swagger UI)
 

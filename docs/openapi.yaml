@@ -2289,8 +2289,8 @@ paths:
       summary: JPEG/PNG1장 선행 업로드
       tags:
       - Images
-      description: file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거. 영속 로컬 파일+업로드 메타데이터 준비 후201. imageId는 사용자 귀속
-        임시 자원, 외부 경로 아님. 만료/미첨부 파일은 정리, ATTACHED 파일은 임시 TTL 정리에서 제외. 별도 공개 업로드 조회 API는 없음.
+      description: file 파트 하나. 서버가 실제 포맷·바이트·픽셀 수를 확인하고 재인코딩/EXIF 제거한 결과만 저장한다. Security 인증 뒤 설정/전송 gate가 multipart parser보다 먼저 실행된다.
+        서비스 설정 또는 양수 multipart 오버헤드가 없으면 CONFIGURATION_UNAVAILABLE(503)이며, 무인증 요청은 먼저401이다. 확실한 롤백의 새 파일만 정리하고 만료 파일의 주기적 정리는 제공하지 않는다.
       x-contract-status: PROPOSED
       x-onboarding-required: true
       responses:
@@ -2428,7 +2428,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '503':
-          description: SERVICE_UNAVAILABLE, IMAGE_STORAGE_UNAVAILABLE
+          description: SERVICE_UNAVAILABLE, CONFIGURATION_UNAVAILABLE, IMAGE_STORAGE_UNAVAILABLE
           headers:
             Cache-Control:
               schema:
@@ -2459,6 +2459,13 @@ paths:
                   value:
                     code: IMAGE_STORAGE_UNAVAILABLE
                     message: 이미지를 저장하지 못했습니다. 다시 시도해 주세요
+                    retryAfterSeconds: null
+                    fieldErrors: []
+                    requestId: 80000000-0000-4000-8000-000000000001
+                CONFIGURATION_UNAVAILABLE:
+                  value:
+                    code: CONFIGURATION_UNAVAILABLE
+                    message: 서비스 설정을 불러올 수 없습니다
                     retryAfterSeconds: null
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
