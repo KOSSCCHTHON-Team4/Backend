@@ -21,7 +21,7 @@ import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
 class MockAdaptersTest {
 
     private final AiProperties props = new AiProperties("mock", Duration.ofSeconds(5),
-            "mock-analysis", "mock-v1", "mock-moderation", "mock-v1");
+            "mock-analysis", "mock-v1", "mock-moderation", "mock-v1", null, null);
     private final MockAnalysisAdapter analysis = new MockAnalysisAdapter(props);
     private final MockModerationAdapter moderation = new MockModerationAdapter(props);
 

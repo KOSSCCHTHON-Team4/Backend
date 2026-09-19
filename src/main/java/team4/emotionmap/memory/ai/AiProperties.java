@@ -14,11 +14,19 @@ public record AiProperties(
         String analysisModel,
         String analysisPromptVersion,
         String moderationModel,
-        String moderationPromptVersion
+        String moderationPromptVersion,
+        String baseUrl,
+        String serviceToken
 ) {
     public static final String MOCK = "mock";
+    /** 실제 AI FastAPI 서버(별도 프로세스)를 HTTP 로 호출하는 provider. */
+    public static final String HTTP = "http";
 
     public boolean isMock() {
         return provider == null || provider.isBlank() || MOCK.equalsIgnoreCase(provider);
+    }
+
+    public boolean isHttp() {
+        return HTTP.equalsIgnoreCase(provider);
     }
 }

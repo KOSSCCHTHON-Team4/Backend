@@ -93,6 +93,10 @@ app:
     analysis-prompt-version: ${AI_ANALYSIS_PROMPT_VERSION:}
     moderation-model: ${AI_MODERATION_MODEL:}
     moderation-prompt-version: ${AI_MODERATION_PROMPT_VERSION:}
+    # provider=http 일 때만 사용. 별도 AI FastAPI 서버 origin 과 공유 토큰(선택).
+    # Claude 키는 여기 두지 않는다 — AI 서버 .env 에만 있고 백엔드는 AI 서버만 호출한다.
+    base-url: ${AI_BASE_URL:}
+    service-token: ${AI_SERVICE_TOKEN:}
 
   # CORS는 명시적 origin allowlist만 허용한다. 빈 값은 교차 출처 요청을 허용하지 않는다.
   cors:
