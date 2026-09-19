@@ -72,7 +72,7 @@ Profiles: `SPRING_PROFILES_ACTIVE=local|ci|prod`; default local. Override `DB_UR
 ## Key policies
 
 - Use **graphify for code analysis** before targeted source inspection. Keep generated graphs outside tracked project files unless explicitly requested. Graph extraction alone is not compilation or behavioral verification.
-- No Docker. Local PostgreSQL only. CI runs DB-less tests; DB-backed checks run separately on local machines.
+- Local development and CI do not use Docker: use local PostgreSQL for DB-backed checks and DB-less tests in CI. User-approved production container configuration is separate; follow `docs/DEPLOY_GUIDE.md` for the Linux Docker Compose deployment boundary. Do not install Docker, start containers, or deploy without explicit authorization.
 - Never upload DB dumps or real customer data. Synthetic/anonymized fixtures only. Flyway schema code may be committed; database dumps may not.
 - Never commit credentials, tokens or provider keys. Do not log passwords, private text, upload paths or source-copy ID pairs.
 - Work on task branches and publish PRs; do not push directly to main.
