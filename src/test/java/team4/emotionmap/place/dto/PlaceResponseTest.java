@@ -2,12 +2,9 @@ package team4.emotionmap.place.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import team4.emotionmap.contracts.dictionary.PlaceCategoryCode;
 import team4.emotionmap.contracts.dictionary.VibeVector;
-import team4.emotionmap.place.Place;
 import team4.emotionmap.platform.web.json.StrictJson;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -21,31 +18,30 @@ class PlaceResponseTest {
 
     private static final double[] SWEEP = {-1.0, -0.87654321, -0.333333, 0.0, 0.0001, 0.5, 0.999999, 1.0};
 
-    private static Place placeWithVibe(VibeVector vibe) {
-        Place place = Place.builder().id(UUID.fromString("00000000-0000-0000-0000-000000000001"))
-                .lat(37.5).lng(127.0).build();
-        place.updateProfile(vibe, 5, PlaceCategoryCode.CAFE, Instant.parse("2026-09-20T00:00:00Z"));
-        return place;
+    private static PlaceResponse responseWithVibe(VibeVector vibe) {
+        return new PlaceResponse(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                null, 37.5, 127.0, null, null, "CAFE", null, 5, vibe, 5L);
     }
 
     @Test
     void vibeSurvivesJsonRoundTripAcrossFullRealRange() {
         for (double v : SWEEP) {
             VibeVector vibe = new VibeVector(v, -v, v / 2, -v / 2);
-            PlaceResponse response = PlaceResponse.from(placeWithVibe(vibe));
+            PlaceResponse response = responseWithVibe(vibe);
             assertThat(response.vibe()).as("v=%s", v).isEqualTo(vibe);
 
             String json = mapper.writeValueAsString(response);
             PlaceResponse parsed = mapper.readValue(json, PlaceResponse.class);
 
+            assertThat(json).doesNotContain("\"zero\"");
             assertThat(parsed.vibe()).as("round-trip v=%s", v).isEqualTo(vibe);
         }
     }
 
     @Test
     void noReviewsSerializesVibeAsNull() {
-        Place place = Place.builder().id(UUID.randomUUID()).lat(37.5).lng(127.0).build();
-        PlaceResponse response = PlaceResponse.from(place);
+        PlaceResponse response = new PlaceResponse(UUID.randomUUID(), null, 37.5, 127.0,
+                null, null, null, null, 0, null, 0L);
 
         String json = mapper.writeValueAsString(response);
         assertThat(json).contains("\"vibe\":null");

@@ -4876,10 +4876,8 @@ paths:
       summary: 현재 사용자 권한 내 지도 핀
       tags:
       - Places
-      description: bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. 자동 인접 병합·업체
-        검색은 없고, placeId를 명시한 경우에만 기존 가시 핀을 재사용한다. FE의 시각 클러스터는 식별자와 권한을 바꾸지 않는다. label이 없으면 null이다. id ASC 커서에 bbox를
-        귀속한다.
-      x-contract-status: PROPOSED
+      description: 구현된 지도 조회. bbox 안에서 현재 사용자에게 가시 경험이 있는 Place만 반환한다. 허용 query는 bbox, cursor, limit뿐이며, bbox는 정확히 한 번 필수이고 존재하는 cursor/limit도 각각 한 번이어야 한다. 본인 ACTIVE 경험과 승인된 실제 수신 LETTER를 중복 제거해 집계한다. profile은 requester-scoped 적격 DIRECT 경험만 사용하며 global Place profile/cache를 읽지 않는다. PostgreSQL UUID ASC cursor는 사용자·경로·정규 bbox·filter=none·effective limit·최초 상한에 서명으로 귀속된다.
+      x-contract-status: IMPLEMENTED
       x-onboarding-required: true
       responses:
         '200':
@@ -4902,9 +4900,19 @@ paths:
                   value:
                     items:
                     - id: 20000000-0000-4000-8000-000000000001
+                      label: null
                       lat: 37.6109
                       lng: 126.9977
-                      label: null
+                      naverTitle: 예시 카페
+                      naverAddress: 서울특별시 예시구
+                      categoryCode: CAFE
+                      categorySource: NAVER
+                      reviewCount: 1
+                      vibe:
+                        crowdLevel: -0.3333333333333333
+                        spatialFeel: -0.3333333333333333
+                        companyFit: 0.3333333333333333
+                        stayStyle: -0.3333333333333333
                       memoryCount: 2
                     pageInfo:
                       nextCursor: null
@@ -5001,7 +5009,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '503':
-          description: SERVICE_UNAVAILABLE
+          description: CONFIGURATION_UNAVAILABLE, SERVICE_UNAVAILABLE
           headers:
             Cache-Control:
               schema:
@@ -5021,6 +5029,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
               examples:
+                CONFIGURATION_UNAVAILABLE:
+                  value:
+                    code: CONFIGURATION_UNAVAILABLE
+                    message: 서비스 설정을 불러올 수 없습니다
+                    retryAfterSeconds: null
+                    fieldErrors: []
+                    requestId: 80000000-0000-4000-8000-000000000001
                 SERVICE_UNAVAILABLE:
                   value:
                     code: SERVICE_UNAVAILABLE
@@ -5029,7 +5044,7 @@ paths:
                     fieldErrors: []
                     requestId: 80000000-0000-4000-8000-000000000001
         '400':
-          description: INVALID_CURSOR, CURSOR_CONTEXT_MISMATCH, INVALID_REQUEST, INVALID_BBOX
+          description: INVALID_CURSOR, CURSOR_CONTEXT_MISMATCH, INVALID_REQUEST, INVALID_BBOX. 빈/공백 cursor·변조·만료·다른 사용자 cursor는 INVALID_CURSOR이고, 유효 cursor의 bbox/effective limit 변경은 CURSOR_CONTEXT_MISMATCH다.
           headers:
             Cache-Control:
               schema:
@@ -5063,14 +5078,18 @@ paths:
                     code: INVALID_REQUEST
                     message: 요청 형식이 올바르지 않습니다
                     retryAfterSeconds: null
-                    fieldErrors: []
+                    fieldErrors:
+                    - field: bbox
+                      reason: REQUIRED
                     requestId: 80000000-0000-4000-8000-000000000001
                 INVALID_BBOX:
                   value:
                     code: INVALID_BBOX
                     message: 지도 조회 범위가 올바르지 않습니다
                     retryAfterSeconds: null
-                    fieldErrors: []
+                    fieldErrors:
+                    - field: bbox
+                      reason: INVALID_VALUE
                     requestId: 80000000-0000-4000-8000-000000000001
         default:
           description: 예상하지 못한 오류도 동일 ApiError 형식. 실제 성공/실패는 HTTP 상태를 따른다.
@@ -5082,21 +5101,21 @@ paths:
       - name: bbox
         in: query
         required: true
-        description: westLng,southLat,eastLng,northLat. 위경도범위·west<east/south<north 서버검증. 반자오선횡단은MVP지원안함.
+        description: 정확히 한 번. URL decode 뒤 westLng,southLat,eastLng,northLat의 네 finite decimal binary64이며 lng [-180,180], lat [-90,90], west<east, south<north. 경계 포함. +/지수/NaN/Infinity/빈·여분 성분/반자오선 횡단은 INVALID_BBOX.
         schema:
           type: string
           pattern: ^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$
       - name: cursor
         in: query
         required: false
-        description: opaque cursor. 첫 페이지에서는 생략. 필터가 바뀌면 폐기한다.
+        description: opaque signed cursor. 첫 페이지에서는 생략; 빈/공백은 INVALID_CURSOR이다. 사용자·/v1/places·pg-uuid-asc·정규 bbox·filter=none·effective limit·최초 상한에 귀속하며 continuation은 최초 expiry를 보존한다.
         schema:
           type: string
           minLength: 1
       - name: limit
         in: query
         required: false
-        description: 생략 시 /v1/config.limits.defaultPageLimit. 일반 목록 상한 maxPageLimit, 지도 maxMapPageLimit.
+        description: 10진 양의 integer, 1..maxMapPageLimit. 생략 시 defaultPageLimit이며 clamp하지 않는다.
         schema:
           type: integer
           minimum: 1
@@ -7006,10 +7025,15 @@ components:
         보관함 목록 이동.
     PlacePin:
       type: object
+      description: requester-visible map pin. memoryCount와 profile aggregate는 서로 다른 authorized set에서 계산된다.
       properties:
         id:
           type: string
           format: uuid
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
         lat:
           type: number
           minimum: -90
@@ -7018,19 +7042,68 @@ components:
           type: number
           minimum: -180
           maximum: 180
-        label:
+        naverTitle:
           anyOf:
           - type: string
           - type: 'null'
+        naverAddress:
+          anyOf:
+          - type: string
+          - type: 'null'
+        categoryCode:
+          anyOf:
+          - $ref: '#/components/schemas/PlaceCategoryCode'
+          - type: 'null'
+        categorySource:
+          anyOf:
+          - type: string
+            enum: [NAVER, REVIEWS]
+          - type: 'null'
+        reviewCount:
+          type: integer
+          minimum: 0
+        vibe:
+          anyOf:
+          - $ref: '#/components/schemas/VibeVector'
+          - type: 'null'
         memoryCount:
           type: integer
+          format: int64
           minimum: 1
       required:
       - id
+      - label
       - lat
       - lng
-      - label
+      - naverTitle
+      - naverAddress
+      - categoryCode
+      - categorySource
+      - reviewCount
+      - vibe
       - memoryCount
+      additionalProperties: false
+    VibeVector:
+      type: object
+      description: PlaceResponse.vibe의 네 profile 축. zero 같은 보조 JSON 필드는 없다.
+      properties:
+        crowdLevel:
+          type: number
+          minimum: -1
+          maximum: 1
+        spatialFeel:
+          type: number
+          minimum: -1
+          maximum: 1
+        companyFit:
+          type: number
+          minimum: -1
+          maximum: 1
+        stayStyle:
+          type: number
+          minimum: -1
+          maximum: 1
+      required: [crowdLevel, spatialFeel, companyFit, stayStyle]
       additionalProperties: false
     PlacePage:
       type: object
@@ -7044,8 +7117,7 @@ components:
       required:
       - items
       - pageInfo
-      additionalProperties: false
-      description: 현재 사용자에게 보이는 경험이 1개 이상인 내부 핀만 반환. 전체 공간/미수신 글의 개수를 반환하지 않는다.
+      description: 구현된 지도 page. 현재 사용자에게 보이는 경험이 1개 이상인 내부 핀만 반환하며, `hasMore == (nextCursor != null)`이다. 전체 공간/미수신 글/global profile count를 반환하지 않는다.
     ReportReason:
       type: string
       enum:

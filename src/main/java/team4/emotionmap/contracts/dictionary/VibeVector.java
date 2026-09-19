@@ -70,15 +70,33 @@ public record VibeVector(double crowdLevel, double spatialFeel, double companyFi
         if (smoothing < 0) {
             throw new IllegalArgumentException("smoothing must be >= 0");
         }
-        double[] sum = new double[4];
-        for (VibeVector s : samples) {
-            double[] a = s.toArray();
-            for (int i = 0; i < 4; i++) {
-                sum[i] += a[i];
-            }
+        double crowdSum = 0.0;
+        double spatialSum = 0.0;
+        double companySum = 0.0;
+        double staySum = 0.0;
+        for (VibeVector sample : samples) {
+            crowdSum += sample.crowdLevel;
+            spatialSum += sample.spatialFeel;
+            companySum += sample.companyFit;
+            staySum += sample.stayStyle;
         }
-        int n = samples.size();
-        double factor = (double) n / (n + smoothing);
-        return new VibeVector(sum[0] / n * factor, sum[1] / n * factor, sum[2] / n * factor, sum[3] / n * factor);
+        return shrunkMeanFromSums(crowdSum, spatialSum, companySum, staySum, samples.size(), smoothing);
+    }
+
+    public static VibeVector shrunkMeanFromSums(double crowdSum, double spatialSum, double companySum,
+                                               double staySum, int sampleCount, int smoothing) {
+        if (sampleCount < 0) {
+            throw new IllegalArgumentException("sampleCount must be >= 0");
+        }
+        if (sampleCount == 0) {
+            return ZERO;
+        }
+        if (smoothing < 0) {
+            throw new IllegalArgumentException("smoothing must be >= 0");
+        }
+        double n = sampleCount;
+        double factor = n / (n + smoothing);
+        return new VibeVector(crowdSum / n * factor, spatialSum / n * factor,
+                companySum / n * factor, staySum / n * factor);
     }
 }
