@@ -180,7 +180,7 @@ Spring Security의 `PasswordEncoder`로 생성·검증하며 기존 해시의 �
 
 온보딩은 사용자 행을 잠근 뒤 위치와 최초 취향을 함께 저장한다. 정규화한 최초 입력을 그대로 재전송하면 변경 없이 200을 반환하고, 다른 값으로 다시 초기화하면 409다. 동일 여부는 이후 수정할 수 있는 최신 취향이 아니라 최초 입력 행과 비교한다. 새 온보딩과 실제 취향 변경이 만드는 행은 `axis_definition_version=2`이며, 현재 v1 행에 수치상 같은 PATCH는 행·revision·effectiveAt·축 버전을 그대로 보존한다. stale `expectedPreferenceVersion`은 같은 payload보다 먼저 409다. 설명만 달라도 새 v2 불변 버전을 INSERT한다.
 
-설명을 null로 보내면 이후 설정에서 설명을 비우지만, 과거 선정에 사용한 버전은 수정하지 않는다. 위치는 변경할 수 없고 적용 시각도 서버가 정한다. 09시 기준 설정과 이미 확정된 날짜의 선정 결과를 소급 교체하지 않는다.
+설명을 null로 보내면 이후 설정에서 설명을 비우지만, 과거 선정에 사용한 버전은 수정하지 않는다. 수신 위치는 `mailboxLat`·`mailboxLng`를 함께 보낸 실제 변경에서만 이동하며, 생략하거나 같은 좌표면 현재 위치 epoch를 보존한다. 위치·취향 변경의 적용 시각은 서버가 정한다. 09시 cutoff 전에 게시된 변경은 그날 선정에, 이후 변경은 다음 선정부터 사용하고 이미 확정된 수신 이력·독립 PRIVATE 사본을 소급 교체하지 않는다.
 
 ## 4. 경험 분석·생성 및 이미지 수명
 
@@ -239,7 +239,7 @@ AI HTTP 연동의 backend-expected wire는 `AX-AI-WIRE-v2`의 flat 응답이다:
 
 ## 5. 수신함 상태·열람·필터·페이지
 
-**구현 경계:** 이 절의 일일 선정·수신함 상태 매핑은 제품/API 계약이다. V11은 이를 지탱하는 score/config-history/cutoff-fence 저장 primitive만 구현했으며, 실제 account·memory producer, selection worker, lease 회수, 후보/AI 계산 및 배달 orchestration은 아직 연결되지 않았다. 따라서 이 절을 실제 선정 API·AI 성공 또는 운영 정책 설정 완료로 해석하지 않는다.
+**구현 경계:** `DailySelectionJob`·`DailySelectionStore`·`DailyPicker`가 09:00 실행, 당일 catch-up, claim, 후보·점수·동률 처리와 배달 확정을 구현한다. 계정·경험 게시자와 reader는 V11 publication fence에 참여하고, worker는 cutoff에 고정된 V12 취향·수신 위치 epoch를 사용한다. `GET /v1/letters/today`는 저장된 슬롯·배달을 읽기만 하며 선정 트리거가 아니다. 실제 외부 AI 품질, 운영 설정 공급 도구, production 스케줄 운영까지 검증했다는 뜻은 아니다.
 
 ### 5.1 DB 상태와 FE 상태의 매핑
 
@@ -718,7 +718,7 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
 
 **4축·자연어 취향 변경** · operationId: `updatePreferences` · 성공 `200`
 
-4축·설명 전체와 현재 버전을 보낸다. 최신 revision이 다르면409. 정상 변경은 전체 새 불변 버전 INSERT. 같은 버전·같은 값은 새 버전 없이200. 위치 필드 제출은422 IMMUTABLE_FIELD. 오늘 확정된/09:00 컷오프 설정을 소급 교체하지 않는다.
+4축·설명 전체와 현재 버전을 보내고, 위치를 바꿀 때만 `mailboxLat`·`mailboxLng`를 함께 보낸다. 최신 revision이 다르면409. 실제 변경은 위치 epoch를 포함한 전체 새 불변 버전을 INSERT하고, 같은 버전·같은 값은 새 버전 없이200이다. 한쪽 좌표만 보내면422이며 legacy `mailbox` 객체는422 `IMMUTABLE_FIELD`다. 오전 9시 cutoff 뒤 게시된 변경은 이미 확정된 선정을 소급 교체하지 않는다.
 
 **요청 스키마:** `PreferencesRequest`
 
@@ -733,7 +733,9 @@ hasOnboarded는 위치와 최초 취향버전의 원자적 완료로 서버가 �
     "STAY_STYLE": -1
   },
   "preferenceDescription": "친구와 조용히 대화할 수 있는 공간을 좋아해요.",
-  "expectedPreferenceVersion": "1"
+  "expectedPreferenceVersion": "1",
+  "mailboxLat": 37.6201,
+  "mailboxLng": 127.0012
 }
 ```
 
@@ -1847,13 +1849,15 @@ code로 분기. retryAfterSeconds는 없으면 null이며 429 응답의 Retry-Af
 
 ### `PreferencesRequest`
 
-설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion은 동시 수정 방지 제안. 위치/버전 적용 시각은 요청 불가.
+설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion은 동시 수정 방지용이며 stale revision은 no-op보다 먼저 거절한다. 수신 위치를 바꿀 때 `mailboxLat`·`mailboxLng`를 함께 보낸다.
 
 | 필드 | 타입 | 키 필수 | 비고 |
 |---|---|---|---|
 | `atmospheres` | Atmospheres | 예 |  |
 | `preferenceDescription` | string / null | 예 |  |
 | `expectedPreferenceVersion` | string | 예 |  |
+| `mailboxLat` | number / null | 아니오 | 위치 변경 시 mailboxLng와 함께 제출. -90..90 |
+| `mailboxLng` | number / null | 아니오 | 위치 변경 시 mailboxLat와 함께 제출. -180..180 |
 
 ### `AnalyzeRequest`
 

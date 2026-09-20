@@ -1,7 +1,7 @@
 package team4.emotionmap.memory;
 
-import java.time.Clock;
 import java.io.InputStream;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +24,7 @@ import team4.emotionmap.contracts.error.ErrorCode;
 import team4.emotionmap.contracts.error.FieldError;
 import team4.emotionmap.contracts.geo.DistanceMeters;
 import team4.emotionmap.contracts.geo.GeoPoint;
+import team4.emotionmap.contracts.media.LocalImageStore;
 import team4.emotionmap.contracts.memory.AtmosphereAnalysisStatus;
 import team4.emotionmap.contracts.memory.AtmosphereSources;
 import team4.emotionmap.contracts.memory.CategoryAnalysisStatus;
@@ -33,21 +34,20 @@ import team4.emotionmap.contracts.memory.DataOrigin;
 import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.contracts.memory.ModerationStatus;
 import team4.emotionmap.contracts.memory.OriginKind;
+import team4.emotionmap.contracts.request.RequestCoordinator;
+import team4.emotionmap.contracts.time.SelectionPublicationBarrier;
 import team4.emotionmap.contracts.validation.TextRules;
-import team4.emotionmap.contracts.media.LocalImageStore;
 import team4.emotionmap.media.ImageUpload;
 import team4.emotionmap.media.ImageUploadService;
 import team4.emotionmap.memory.analysis.AnalysisReceipt;
 import team4.emotionmap.memory.analysis.AnalysisReceiptCodec;
 import team4.emotionmap.memory.analysis.AxisSourceResolver;
 import team4.emotionmap.memory.dto.MemoryCreateRequest;
-import team4.emotionmap.memory.dto.MemoryResponse;
 import team4.emotionmap.place.NaverCategoryMapper;
 import team4.emotionmap.place.Place;
 import team4.emotionmap.place.PlaceCategory;
 import team4.emotionmap.place.PlaceCategoryRepository;
 import team4.emotionmap.place.PlaceRepository;
-
 /**
  * A05 직접 경험 생성(기획 §1 "[리뷰 작성] → /ai/analyze → Memory 저장 → Place 갱신").
  * <ul>
@@ -67,38 +67,61 @@ public class MemoryService {
     private final MemoryCategoryRepository memoryCategoryRepository;
     private final MemoryAccessService memoryAccessService;
     private final UserRepository userRepository;
+    private final AccountAccessService accountAccessService;
     private final PlaceRepository placeRepository;
     private final PlaceCategoryRepository placeCategoryRepository;
     private final ImageUploadService imageUploadService;
     private final LocalImageStore localImageStore;
     private final AnalysisReceiptCodec receiptCodec;
     private final PlaceProfileService placeProfileService;
+    private final MemoryWriteQueries memoryWriteQueries;
     private final ServiceConfigSource serviceConfig;
     private final MatchingProperties matching;
+    private final RequestCoordinator requestCoordinator;
+    private final SelectionPublicationBarrier publicationBarrier;
     private final Clock clock;
 
-    @Transactional
-    public MemoryResponse create(UUID ownerId, MemoryCreateRequest request) {
-        requireActiveOwner(ownerId);
+    /**
+     * Claims the durable idempotency key before any expiring token, staged image, or quota is consumed.
+     * The coordinator owns the only transaction that creates and completes a memory request.
+     */
+    public CreateResult create(UUID ownerId, UUID key, MemoryCreateRequest request) {
+        requireCurrentOwner(ownerId);
+        RequestCoordinator.Scope scope = new RequestCoordinator.Scope(
+                ownerId, RequestCoordinator.Route.MEMORIES, key);
+        RequestCoordinator.Admission admission = requestCoordinator.claim(
+                scope, MemoryRequestFingerprint.fingerprint(request));
+        if (admission instanceof RequestCoordinator.Replay replay) {
+            return receiptFor(ownerId, replay.resource(), RequestCoordinator.CompletionKind.REPLAY);
+        }
+
+        RequestCoordinator.Claim claim = ((RequestCoordinator.Claimed) admission).claim();
+        RequestCoordinator.Completion completion = requestCoordinator.complete(
+                claim, () -> persistNewMemory(ownerId, request));
+        return receiptFor(ownerId, completion.resource(), completion.kind());
+    }
+
+    private RequestCoordinator.ResourceRef persistNewMemory(UUID ownerId, MemoryCreateRequest request) {
+        requireLockedCurrentOwner(ownerId);
         if (request.type() == null || request.atmospheres() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST");
         }
         String content = TextRules.requireContent(request.content(),
                 serviceConfig.limits().memoryContentMaxCodePoints(), "content", ErrorCode.VALIDATION_ERROR);
-        Instant now = clock.instant();
-
+        Instant now = publicationBarrier.databaseNow();
         AnalysisReceipt receipt = request.analysisToken() == null ? null
                 : receiptCodec.verify(request.analysisToken(), ownerId, content, now);
 
         // 카테고리: 사용자 확정값(0~3). 네이버 카테고리가 있으면 그 매핑이 1슬롯이 된다.
         List<PlaceCategoryCode> finalCodes = CategorySelection.validate("categoryCodes", request.categoryCodes());
-        PlaceCategoryCode naverMapped = NaverCategoryMapper.map(request.naverCategory()).orElse(null);
+        PlaceCategoryCode naverMapped = NaverCategoryMapper
+                .map(MemoryRequestFingerprint.normalizeNaverField(request.naverCategory())).orElse(null);
         if (naverMapped != null && !finalCodes.contains(naverMapped)) {
             List<PlaceCategoryCode> merged = new java.util.ArrayList<>();
             merged.add(naverMapped);
-            for (PlaceCategoryCode c : finalCodes) {
+            for (PlaceCategoryCode category : finalCodes) {
                 if (merged.size() < PlaceCategoryCode.MAX_PER_MEMORY) {
-                    merged.add(c);
+                    merged.add(category);
                 }
             }
             finalCodes = List.copyOf(merged);
@@ -111,10 +134,15 @@ public class MemoryService {
         Place place = resolvePlace(ownerId, request, finalCodes.isEmpty() ? null : finalCodes.getFirst(), naverMapped);
         ImageUpload image = request.imageId() == null ? null
                 : imageUploadService.requireAttachable(ownerId, request.imageId());
+        if (memoryWriteQueries.countDirectForServiceDay(ownerId, now)
+                >= serviceConfig.limits().dailyDirectMemoryLimit()) {
+            throw ContractError.of(ErrorCode.DAILY_WRITE_LIMIT_EXCEEDED);
+        }
 
-        AnalysisEnrichment e = receipt == null ? AnalysisEnrichment.NONE : receipt.enrichment();
+        AnalysisEnrichment enrichment = receipt == null ? AnalysisEnrichment.NONE : receipt.enrichment();
         boolean piiMasked = receipt != null && receipt.isMaskedSubmission(content);
-        PlaceCategoryCode predicted = receipt == null || receipt.categories().isEmpty() ? null : receipt.categories().getFirst();
+        PlaceCategoryCode predicted = receipt == null || receipt.categories().isEmpty()
+                ? null : receipt.categories().getFirst();
 
         Memory memory = memoryRepository.save(Memory.builder()
                 .ownerId(ownerId).placeId(place.getId()).content(content)
@@ -136,24 +164,24 @@ public class MemoryService {
                 .imageSizeBytes(image == null ? null : image.getSizeBytes())
                 .moderationStatus(request.type() == DistributionType.PRIVATE
                         ? ModerationStatus.NOT_REQUIRED : ModerationStatus.PENDING)
-                .evidence(e.evidence().isEmpty() ? null : e.evidence())
-                .tags(e.tags().isEmpty() ? null : e.tags())
+                .evidence(enrichment.evidence().isEmpty() ? null : enrichment.evidence())
+                .tags(enrichment.tags().isEmpty() ? null : enrichment.tags())
                 .categoryPred(predicted == null ? null : predicted.name())
-                .categoryConf(e.categoryConfidence())
-                .safe(e.safe())
+                .categoryConf(enrichment.categoryConfidence())
+                .safe(enrichment.safe())
                 .piiMasked(piiMasked)
-                .unsafeReason(e.unsafeReason())
+                .unsafeReason(enrichment.unsafeReason())
                 .createdAt(now)
                 .build());
         if (image != null) {
             image.attach(memory.getId());
         }
-        for (CategoryAssignment a : assignments) {
-            PlaceCategory category = placeCategoryRepository.findByCode(a.code().name())
-                    .orElseThrow(() -> new IllegalStateException("Category seed missing: " + a.code()));
+        for (CategoryAssignment assignment : assignments) {
+            PlaceCategory category = placeCategoryRepository.findByCode(assignment.code().name())
+                    .orElseThrow(() -> new IllegalStateException("Category seed missing: " + assignment.code()));
             memoryCategoryRepository.save(MemoryCategory.builder()
                     .id(new MemoryCategoryId(memory.getId(), category.getId()))
-                    .slotNo((short) a.slotNo()).assignmentSource(a.source())
+                    .slotNo((short) assignment.slotNo()).assignmentSource(assignment.source())
                     .labelSnapshot(category.getLabel()).taxonomyVersion(category.getTaxonomyVersion()).build());
         }
         if (request.type() == DistributionType.PRIVATE) {
@@ -161,30 +189,17 @@ public class MemoryService {
         }
         log.info("memory created id={} type={} place={} analysis={} pii={}", memory.getId(), request.type(),
                 place.getId(), receipt != null, piiMasked);
-        return MemoryResponse.from(memory);
+        return new RequestCoordinator.ResourceRef(RequestCoordinator.Route.MEMORIES, memory.getId());
     }
 
-    @Transactional(readOnly = true)
-    public MemoryResponse get(UUID userId, UUID id) {
-        return MemoryResponse.from(memoryAccessService.requireReadable(userId, id));
-    }
-
-    @Transactional(readOnly = true)
-    public List<MemoryResponse> findByUser(UUID userId) {
-        return memoryRepository.findByOwnerIdAndContentStatusOrderByCreatedAtDesc(userId, ContentStatus.ACTIVE)
-                .stream().map(MemoryResponse::from).toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<MemoryResponse> findByPlace(UUID userId, UUID placeId) {
-        List<MemoryResponse> visible = memoryRepository
-                .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(placeId, ContentStatus.ACTIVE).stream()
-                .filter(memory -> memoryAccessService.isReadable(userId, memory))
-                .map(MemoryResponse::from).toList();
-        if (visible.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Place not found");
+    private CreateResult receiptFor(
+            UUID ownerId, RequestCoordinator.ResourceRef resource, RequestCoordinator.CompletionKind kind
+    ) {
+        if (resource.route() != RequestCoordinator.Route.MEMORIES) {
+            throw ContractError.of(ErrorCode.SERVICE_UNAVAILABLE);
         }
-        return visible;
+        requireCurrentOwner(ownerId);
+        return new CreateResult(resource.id(), kind);
     }
 
     public ImageContent image(UUID userId, UUID memoryId) {
@@ -228,14 +243,24 @@ public class MemoryService {
         AccountAccessService.requireActive(owner);
     }
 
+    private void requireCurrentOwner(UUID ownerId) {
+        accountAccessService.requireAccess(ownerId, RequestCoordinator.Route.MEMORIES.path());
+    }
+
+    private void requireLockedCurrentOwner(UUID ownerId) {
+        User owner = userRepository.findByIdForUpdate(ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account not found"));
+        AccountAccessService.requireActive(owner);
+        accountAccessService.requireAccess(ownerId, RequestCoordinator.Route.MEMORIES.path());
+    }
+
     /**
      * 핀 결정. 명시 placeId → 가시성·좌표 일치 검사. 미지정 → (1) 네이버 상호명이 같은 근처 핀,
      * (2) 미등록이면 반경 {@code mergeDistanceMeters} 안 같은 카테고리 핀과 병합, (3) 새 핀.
      */
     private Place resolvePlace(UUID ownerId, MemoryCreateRequest request, PlaceCategoryCode category,
                                PlaceCategoryCode naverMapped) {
-        GeoPoint point = team4.emotionmap.contracts.validation.StrictValues.requireCoordinates(
-                request.lat(), request.lng(), "lat", "lng", ErrorCode.VALIDATION_ERROR);
+        GeoPoint point = MemoryRequestFingerprint.normalizedCoordinates(request);
         if (request.placeId() != null) {
             boolean visible = memoryRepository
                     .findByPlaceIdAndContentStatusOrderByCreatedAtDesc(request.placeId(), ContentStatus.ACTIVE).stream()
@@ -257,16 +282,17 @@ public class MemoryService {
                 .stream().filter(p -> DistanceMeters.between(point, new GeoPoint(p.getLat(), p.getLng())) <= mergeRadius)
                 .toList();
 
-        if (request.hasNaverPlace()) {
-            String title = request.naverTitle().strip();
+        String title = MemoryRequestFingerprint.normalizeNaverTitle(request.naverTitle());
+        if (title != null) {
             for (Place p : nearby) {
                 if (title.equals(p.getNaverTitle())) {
                     return p;
                 }
             }
             Place created = placeRepository.save(Place.builder().lat(point.lat()).lng(point.lng())
-                    .label(normalizeLabel(request.placeLabel())).build());
-            created.attachNaver(title, request.naverAddress(), request.naverCategory(), naverMapped);
+                    .label(MemoryRequestFingerprint.normalizeLabel(request.placeLabel())).build());
+            created.attachNaver(title, MemoryRequestFingerprint.normalizeNaverField(request.naverAddress()),
+                    MemoryRequestFingerprint.normalizeNaverField(request.naverCategory()), naverMapped);
             return created;
         }
         // 미등록 장소: 20m 안 같은 카테고리의 미등록 핀이 있으면 병합(기획 §5)
@@ -278,10 +304,9 @@ public class MemoryService {
             }
         }
         return placeRepository.save(Place.builder().lat(point.lat()).lng(point.lng())
-                .label(normalizeLabel(request.placeLabel())).build());
+                .label(MemoryRequestFingerprint.normalizeLabel(request.placeLabel())).build());
     }
 
-    private static String normalizeLabel(String label) {
-        return label == null || label.isBlank() ? null : label.strip();
+    public record CreateResult(UUID memoryId, RequestCoordinator.CompletionKind kind) {
     }
 }

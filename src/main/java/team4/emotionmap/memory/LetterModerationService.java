@@ -98,13 +98,18 @@ public class LetterModerationService {
     /** 상태 저장은 짧은 트랜잭션. 같은 빈 안의 자기 호출이라 애노테이션 프록시 대신 TransactionTemplate 을 쓴다. */
     void apply(UUID memoryId, ModerationStatus verdict) {
         transactionTemplate.executeWithoutResult(status -> {
-            publicationBarrier.lock();
+            if (verdict == ModerationStatus.APPROVED) {
+                // The cutoff fence must be held before the memory row so selection sees a total order.
+                publicationBarrier.lock();
+            }
             Memory memory = memoryRepository.findByIdForUpdate(memoryId).orElse(null);
             if (memory == null || memory.getDistributionType() != DistributionType.LETTER
                     || memory.getModerationStatus() == ModerationStatus.APPROVED) {
                 return; // 이미 승인됐으면 최초 시각을 건드리지 않는다.
             }
-            memory.applyModeration(verdict, publicationBarrier.publicationTime());
+            Instant publicationTime = verdict == ModerationStatus.APPROVED
+                    ? publicationBarrier.publicationTime() : null;
+            memory.applyModeration(verdict, publicationTime);
             log.info("moderation applied memory={} verdict={} availableAt={}", memoryId, verdict, memory.getAvailableAt());
             if (verdict == ModerationStatus.APPROVED) {
                 placeProfileService.recompute(memory.getPlaceId());

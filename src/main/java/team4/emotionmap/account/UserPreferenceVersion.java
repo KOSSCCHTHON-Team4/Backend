@@ -38,9 +38,17 @@ public class UserPreferenceVersion {
     @Column(nullable = false, updatable = false)
     private Long revision;
 
-    @Builder.Default
     @Column(nullable = false, updatable = false)
-    private Instant effectiveAt = Instant.now();
+    private Instant effectiveAt;
+
+    @Column(name = "mailbox_lat", nullable = false, updatable = false)
+    private double mailboxLat;
+
+    @Column(name = "mailbox_lng", nullable = false, updatable = false)
+    private double mailboxLng;
+
+    @Column(name = "mailbox_enabled_at", nullable = false, updatable = false)
+    private Instant mailboxEnabledAt;
 
     @Column(nullable = false, updatable = false)
     private double crowdLevel;

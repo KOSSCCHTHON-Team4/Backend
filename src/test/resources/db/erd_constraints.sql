@@ -14,12 +14,15 @@ BEGIN
     RAISE EXCEPTION 'Expected SQLSTATE %, but statement succeeded: %', expected_state, statement;
 END $$;
 
-INSERT INTO app_users(id, access_status) VALUES
-    ('10000000-0000-4000-8000-000000000001', 'ACTIVE'),
-    ('10000000-0000-4000-8000-000000000002', 'ACTIVE');
-INSERT INTO user_preference_versions(id,user_id,revision,effective_at,crowd_level,spatial_feel,company_fit,stay_style,axis_definition_version) VALUES
-    ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',1,'2026-09-18T00:00:00Z',-1,1,-1,1,1),
-    ('20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002',1,'2026-09-18T00:00:00Z',1,-1,1,-1,2);
+INSERT INTO app_users(id, access_status, mailbox_lat, mailbox_lng, mailbox_enabled_at) VALUES
+    ('10000000-0000-4000-8000-000000000001', 'ACTIVE', 37.5, 127.0, '2026-09-18T00:00:00Z'),
+    ('10000000-0000-4000-8000-000000000002', 'ACTIVE', 37.5, 127.0, '2026-09-18T00:00:00Z');
+INSERT INTO user_preference_versions(id,user_id,revision,effective_at,crowd_level,spatial_feel,company_fit,stay_style,
+    axis_definition_version,mailbox_lat,mailbox_lng,mailbox_enabled_at) VALUES
+    ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',1,'2026-09-18T00:00:00Z',
+     -1,1,-1,1,1,37.5,127.0,'2026-09-18T00:00:00Z'),
+    ('20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002',1,'2026-09-18T00:00:00Z',
+     1,-1,1,-1,2,37.5,127.0,'2026-09-18T00:00:00Z');
 INSERT INTO places(id,label,lat,lng) VALUES ('30000000-0000-4000-8000-000000000001','Synthetic pin',37.5,127.0);
 INSERT INTO memories(id,owner_id,place_id,distribution_type,origin_kind,data_origin,content,place_lat,place_lng,
     crowd_level,spatial_feel,company_fit,stay_style,crowd_source,spatial_source,company_source,stay_source,
@@ -43,9 +46,11 @@ UPDATE user_preference_versions SET crowd_level=0.25, spatial_feel=0 WHERE id='2
 SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET crowd_level='NaN'::double precision WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET crowd_level='Infinity'::double precision WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET axis_definition_version=3 WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET mailbox_lat='NaN'::double precision WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE user_preference_versions SET mailbox_enabled_at=effective_at + interval '1 microsecond' WHERE id='20000000-0000-4000-8000-000000000002'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE memories SET origin_kind='LETTER_COPY' WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23514');
 SELECT pg_temp.assert_rejected($q$UPDATE memories SET image_path='orphan.png' WHERE id='40000000-0000-4000-8000-000000000001'$q$,'23514');
-SELECT pg_temp.assert_rejected($q$UPDATE app_users SET mailbox_lat=37.5 WHERE id='10000000-0000-4000-8000-000000000001'$q$,'23514');
+SELECT pg_temp.assert_rejected($q$UPDATE app_users SET mailbox_lat=NULL WHERE id='10000000-0000-4000-8000-000000000001'$q$,'23514');
 
 INSERT INTO memory_categories(memory_id,category_id,slot_no,assignment_source,label_snapshot)
 SELECT '40000000-0000-4000-8000-000000000001',id,id,'USER',label FROM place_categories WHERE id BETWEEN 1 AND 3;

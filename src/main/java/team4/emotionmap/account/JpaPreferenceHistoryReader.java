@@ -51,6 +51,8 @@ public class JpaPreferenceHistoryReader implements PreferenceHistoryReader {
                 new Atmospheres(version.getCrowdLevel(), version.getSpatialFeel(),
                         version.getCompanyFit(), version.getStayStyle()),
                 description == null || description.isBlank() ? null : description,
-                version.getAxisDefinitionVersion());
+                version.getAxisDefinitionVersion(),
+                User.normalizedMailbox(version.getMailboxLat(), version.getMailboxLng()),
+                version.getMailboxEnabledAt());
     }
 }

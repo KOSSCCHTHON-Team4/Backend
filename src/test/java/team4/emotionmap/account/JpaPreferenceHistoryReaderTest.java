@@ -9,8 +9,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
+import team4.emotionmap.contracts.geo.GeoPoint;
 
 class JpaPreferenceHistoryReaderTest {
+
+    private static final GeoPoint MAILBOX = new GeoPoint(37.5, 127.0);
+    private static final Instant MAILBOX_ENABLED_AT = Instant.parse("2026-09-19T22:00:00Z");
 
     private final UserPreferenceVersionRepository repository = mock(UserPreferenceVersionRepository.class);
     private final JpaPreferenceHistoryReader reader = new JpaPreferenceHistoryReader(repository);
@@ -18,12 +22,13 @@ class JpaPreferenceHistoryReaderTest {
     private static UserPreferenceVersion version(UUID id, UUID userId, String description) {
         return UserPreferenceVersion.builder().id(id).userId(userId).revision(3L)
                 .effectiveAt(Instant.parse("2026-09-19T23:40:00Z"))
+                .mailboxLat(MAILBOX.lat()).mailboxLng(MAILBOX.lng()).mailboxEnabledAt(MAILBOX_ENABLED_AT)
                 .crowdLevel(-0.5).spatialFeel(1).companyFit(0).stayStyle(-1)
                 .description(description).build();
     }
 
     @Test
-    void findAtMapsSnapshotAndNormalizesBlankDescription() {
+    void findAtMapsHistoricalMailboxEpochAndNormalizesBlankDescription() {
         UUID user = UUID.randomUUID();
         UUID id = UUID.randomUUID();
         Instant cutoff = Instant.parse("2026-09-20T00:00:00Z");
@@ -37,6 +42,8 @@ class JpaPreferenceHistoryReaderTest {
         assertThat(snapshot.atmospheres()).isEqualTo(new Atmospheres(-0.5, 1, 0, -1));
         assertThat(snapshot.description()).isNull();
         assertThat(snapshot.axisDefinitionVersion()).isEqualTo(2);
+        assertThat(snapshot.mailbox()).isEqualTo(MAILBOX);
+        assertThat(snapshot.mailboxEnabledAt()).isEqualTo(MAILBOX_ENABLED_AT);
     }
 
     @Test

@@ -216,7 +216,7 @@ CLI는 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SCHEMA`를 명시적으로 �
 - 키 행 → 현재 사용자 → 자격증명 순서로 잠그고 검증 후 DB 시각으로 창·잠금을 결정한다. 올바른 비밀번호는 이후 계정 상태가 403이더라도 제한을 먼저 커밋해 초기화한다. 없는 이메일도 같은 제한과 프로세스별 dummy BCrypt 검증을 사용한다. 입력 오류·DB/검증기 장애는 비밀번호 실패로 집계하지 않는다. 필수 인증 설정·W가 없거나 유효하지 않으면 로그인은 503이며 제한 행을 변경하지 않는다.
 - 보호 요청에서도 현재 계정 상태를 확인하고 온보딩 전 허용 경로를 제한한다. JWT 발급 당시 ACTIVE였다는 사실만 믿지 않는다.
 - `JWT_SECRET`·`SIGNING_SECRET`은 환경변수로 주입한다. 토큰의 초 단위 TTL과 로그인 응답은 `SERVICE_AUTH_ACCESS_TOKEN_TTL_SECONDS`를 함께 사용한다. 기존 `JWT_EXPIRATION_MILLIS`는 사용하지 않는다. 필요한 서비스 설정이 없으면 발급은 503으로 실패한다. 발급·검증은 동일한 UTC `Clock`을 사용한다.
-- 현재 access token만 발급하고 refresh·공개 가입·위치 변경 경로는 제공하지 않는다.
+- 현재 access token만 발급하고 refresh·공개 가입·별도 위치 전용 경로는 제공하지 않는다. 수신 위치 변경은 현재 revision과 좌표 pair를 받는 `PATCH /v1/users/me/preferences`의 원자적 설정 변경으로만 제공한다.
 - `CORS_ALLOWED_ORIGINS`는 쉼표로 구분한 정확한 origin allowlist다. wildcard·credential cookie는 허용하지 않는다. 허용된 preflight만 CORS 필터가 처리하며 일반 OPTIONS 요청의 업무 API 인증은 유지한다. 브라우저에 `X-Request-Id`·`Retry-After`·`WWW-Authenticate`를 노출한다.
 - 본인 또는 실제 수신자라는 객체별 접근 자격을 확인한다. 삭제·숨김 대상은 기존 접근자에게 410, 미권한자에게 404를 반환한다. 이미지·핀·집계에도 같은 가시성 원칙을 적용한다.
 - 내부 ERROR dispatch는 원래 오류 상태를 보존하도록 허용한다. 이는 외부 `/error` 요청을 공개한다는 뜻이 아니다.

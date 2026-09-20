@@ -32,24 +32,25 @@ class DailySelectionStore {
             SELECT u.id FROM app_users u
             LEFT JOIN daily_selections d ON d.user_id = u.id AND d.service_date = :date
             WHERE u.access_status = 'ACTIVE'
-              AND u.mailbox_enabled_at IS NOT NULL AND u.mailbox_enabled_at <= :cutoff
+              AND u.mailbox_enabled_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM user_preference_versions p
+                          WHERE p.user_id = u.id AND p.effective_at <= :cutoff)
               AND (d.user_id IS NULL
                    OR d.status IN ('PENDING', 'RETRYABLE_ERROR')
                    OR (d.status = 'PROCESSING' AND d.lease_expires_at < clock_timestamp()))
             ORDER BY u.id
             """;
 
-    /** MVP_PLAN 6.2 후보 조건 중 SQL 로 거를 수 있는 것. 반경은 {@code DistanceMeters} 로 Java 에서 확인한다. */
+    /** MVP_PLAN 6.2 후보 조건 중 SQL 로 거를 수 있는 것. 위치 epoch은 고정 취향 버전에서 받고, 반경은 Java에서 확인한다. */
     private static final String CANDIDATES = """
             SELECT m.id, m.content, m.crowd_level, m.spatial_feel, m.company_fit, m.stay_style,
                    m.place_lat, m.place_lng
             FROM memories m
-            JOIN app_users u ON u.id = :userId
             WHERE m.distribution_type = 'LETTER'
               AND m.content_status = 'ACTIVE'
               AND m.moderation_status = 'APPROVED'
               AND m.available_at IS NOT NULL
-              AND m.available_at >= u.mailbox_enabled_at
+              AND m.available_at >= :mailboxEnabledAt
               AND m.available_at <= :cutoff
               AND m.owner_id <> :userId
               AND m.place_lat IS NOT NULL AND m.place_lng IS NOT NULL
@@ -64,9 +65,6 @@ class DailySelectionStore {
     }
 
     record CandidateRow(UUID memoryId, String content, Atmospheres atmospheres, double lat, double lng) {
-    }
-
-    record Mailbox(double lat, double lng) {
     }
 
     /** 지난 날짜에 끝나지 못한 슬롯은 EXPIRED_ERROR 로 닫는다(자정 이후 전날 배달을 만들지 않음). */
@@ -122,14 +120,10 @@ class DailySelectionStore {
         return resumed.stream().findFirst();
     }
 
-    Optional<Mailbox> mailbox(UUID userId) {
-        return jdbc.query("SELECT mailbox_lat, mailbox_lng FROM app_users WHERE id = :userId AND mailbox_lat IS NOT NULL",
-                Map.of("userId", userId), (rs, i) -> new Mailbox(rs.getDouble(1), rs.getDouble(2))).stream().findFirst();
-    }
-
-    List<CandidateRow> candidates(UUID userId, Instant cutoff) {
+    List<CandidateRow> candidates(UUID userId, Instant cutoff, Instant mailboxEnabledAt) {
         return jdbc.query(CANDIDATES,
-                new MapSqlParameterSource().addValue("userId", userId).addValue("cutoff", ts(cutoff)),
+                new MapSqlParameterSource().addValue("userId", userId).addValue("cutoff", ts(cutoff))
+                        .addValue("mailboxEnabledAt", ts(mailboxEnabledAt)),
                 (rs, i) -> new CandidateRow(rs.getObject("id", UUID.class), rs.getString("content"),
                         new Atmospheres(rs.getDouble("crowd_level"), rs.getDouble("spatial_feel"),
                                 rs.getDouble("company_fit"), rs.getDouble("stay_style")),

@@ -168,12 +168,13 @@ public class DailySelectionJob {
             DailySelectionStore.Claim claim = claimed.get();
             // 재시도에서도 처음 고정한 취향 버전과 설정을 유지한다.
             Optional<PreferenceVersionSnapshot> pinned = preferences.findVersion(userId, claim.preferenceVersionId());
-            Optional<DailySelectionStore.Mailbox> mailbox = store.mailbox(userId);
-            if (pinned.isEmpty() || mailbox.isEmpty()) {
-                store.markRetryable(claim, pinned.isEmpty() ? "PREFERENCE_VERSION_MISSING" : "MAILBOX_MISSING");
+            if (pinned.isEmpty()) {
+                store.markRetryable(claim, "PREFERENCE_VERSION_MISSING");
                 return null;
             }
-            return new SelectionInput(claim, pinned.get(), mailbox.get(), store.candidates(userId, cutoff));
+            PreferenceVersionSnapshot pinnedSnapshot = pinned.get();
+            return new SelectionInput(claim, pinnedSnapshot,
+                    store.candidates(userId, cutoff, pinnedSnapshot.mailboxEnabledAt()));
         });
         if (input == null) {
             return;
@@ -187,14 +188,13 @@ public class DailySelectionJob {
     }
 
     private record SelectionInput(DailySelectionStore.Claim claim, PreferenceVersionSnapshot preference,
-                                  DailySelectionStore.Mailbox mailbox,
                                   List<DailySelectionStore.CandidateRow> candidates) {
     }
 
     private void select(SelectionInput input, Instant cutoff) {
         DailySelectionStore.Claim claim = input.claim();
         PreferenceVersionSnapshot pinned = input.preference();
-        GeoPoint home = new GeoPoint(input.mailbox().lat(), input.mailbox().lng());
+        GeoPoint home = pinned.mailbox();
         List<DailyPicker.Candidate> candidates = new ArrayList<>();
         for (DailySelectionStore.CandidateRow row : input.candidates()) {
             if (DistanceMeters.between(home, new GeoPoint(row.lat(), row.lng())) <= claim.radiusMeters()) {
@@ -212,11 +212,12 @@ public class DailySelectionJob {
             store.markRetryable(claim, "RULE_V1_NON_INTEGRAL_SCORE");
             return;
         }
-        finish(claim, cutoff, pick.get());
+        finish(claim, pinned, cutoff, pick.get());
     }
 
     /** 잠금 순서: 사용자 → 경험 → 슬롯 → 배달 (좋아요 흐름과 같은 순서). */
-    private void finish(DailySelectionStore.Claim claim, Instant cutoff, DailyPicker.Pick pick) {
+    private void finish(DailySelectionStore.Claim claim, PreferenceVersionSnapshot pinned, Instant cutoff,
+                        DailyPicker.Pick pick) {
         readCommitted.executeWithoutResult(status -> {
             User user = userRepository.findByIdForUpdate(claim.userId()).orElse(null);
             if (user == null || !user.isActive()) {
@@ -224,7 +225,7 @@ public class DailySelectionJob {
                 return;
             }
             Memory memory = memoryRepository.findByIdForUpdate(pick.memoryId()).orElse(null);
-            if (!stillEligible(memory, user, claim, cutoff)) {
+            if (!stillEligible(memory, user, pinned, claim, cutoff)) {
                 store.markRetryable(claim, "CANDIDATE_CHANGED"); // 다음 주기에 다시 계산
                 return;
             }
@@ -245,17 +246,18 @@ public class DailySelectionJob {
         });
     }
 
-    private static boolean stillEligible(Memory memory, User user, DailySelectionStore.Claim claim, Instant cutoff) {
+    private static boolean stillEligible(Memory memory, User user, PreferenceVersionSnapshot pinned,
+                                         DailySelectionStore.Claim claim, Instant cutoff) {
         if (memory == null || !memory.isDeliverable() || memory.getOwnerId().equals(user.getId())
                 || memory.getPlaceLat() == null || memory.getPlaceLng() == null
                 || user.getMailboxLat() == null || user.getMailboxLng() == null || user.getMailboxEnabledAt() == null) {
             return false;
         }
         Instant availableAt = memory.getAvailableAt();
-        if (availableAt.isBefore(user.getMailboxEnabledAt()) || availableAt.isAfter(cutoff)) {
+        if (availableAt.isBefore(pinned.mailboxEnabledAt()) || availableAt.isAfter(cutoff)) {
             return false;
         }
-        double distance = DistanceMeters.between(new GeoPoint(user.getMailboxLat(), user.getMailboxLng()),
+        double distance = DistanceMeters.between(pinned.mailbox(),
                 new GeoPoint(memory.getPlaceLat(), memory.getPlaceLng()));
         return distance <= claim.radiusMeters();
     }
