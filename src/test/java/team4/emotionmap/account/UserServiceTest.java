@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,6 +29,7 @@ import team4.emotionmap.contracts.error.ContractError;
 import team4.emotionmap.contracts.error.ErrorCode;
 import team4.emotionmap.contracts.error.FieldError;
 import team4.emotionmap.contracts.geo.GeoPoint;
+import team4.emotionmap.contracts.time.SelectionPublicationBarrier;
 
 class UserServiceTest {
 
@@ -45,8 +47,14 @@ class UserServiceTest {
     private final UserRepository users = mock(UserRepository.class);
     private final EmailPasswordCredentialRepository credentials = mock(EmailPasswordCredentialRepository.class);
     private final UserPreferenceVersionRepository preferences = mock(UserPreferenceVersionRepository.class);
+    private final SelectionPublicationBarrier publicationBarrier = mock(SelectionPublicationBarrier.class);
     private final UserService service = new UserService(users, credentials, preferences, mock(AccountAccessService.class),
-            SERVICE_CONFIG);
+            SERVICE_CONFIG, publicationBarrier);
+
+    @BeforeEach
+    void publicationTime() {
+        when(publicationBarrier.publicationTime()).thenReturn(LATEST_EFFECTIVE_AT);
+    }
 
     @Test
     void normalizedNumericNoOpPreservesTheCurrentLegacyPreferenceRow() {

@@ -79,6 +79,21 @@ class DailyPickerTest {
     }
 
     @Test
+    void distinctBinary64ScoresAreNotTiesEvenWithinTheFormerTolerance() {
+        Atmospheres preference = new Atmospheres(0, 0, 0, 0);
+        var best = letter("01", 0, 0, 0, 0);
+        var lower = letter("02", 1e-9, 0, 0, 0);
+
+        var pick = picker.pick(preference, "quiet", List.of(lower, best), SEED).orElseThrow();
+
+        assertThat(pick.memoryId()).isEqualTo(best.memoryId());
+        assertThat(pick.method()).isEqualTo(TieBreakMethod.SINGLE_TOP_SCORE);
+        assertThat(pick.topTieCount()).isEqualTo(1);
+        assertThat(pick.fixedScore()).isEqualTo(DailyPicker.score(preference, best.atmospheres()));
+        verify(port, never()).rank(any());
+    }
+
+    @Test
     void tieWithoutDescriptionIsReproducibleRandomAmongTopOnly() {
         var a = letter("01", -1, -1, -1, 1);
         var b = letter("02", -1, -1, 1, -1);

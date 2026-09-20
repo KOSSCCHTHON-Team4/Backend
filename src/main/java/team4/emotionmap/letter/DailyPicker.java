@@ -31,9 +31,6 @@ import team4.emotionmap.contracts.dictionary.Atmospheres;
 @Slf4j
 final class DailyPicker {
 
-    /** 부동소수 합산 오차로 같은 점수가 갈라지지 않게 하는 허용치. */
-    static final double TIE_EPSILON = 1e-9;
-
     record Candidate(UUID memoryId, String content, Atmospheres atmospheres) {
         Candidate {
             Objects.requireNonNull(memoryId, "memoryId");
@@ -76,7 +73,7 @@ final class DailyPicker {
         }
         List<Candidate> top = new ArrayList<>();
         for (int i = 0; i < candidates.size(); i++) {
-            if (scores.get(i) >= best - TIE_EPSILON) {
+            if (scores.get(i) == best) {
                 top.add(candidates.get(i));
             }
         }

@@ -32,15 +32,15 @@ import team4.emotionmap.memory.MemoryRepository;
 /**
  * B02 매일 09:00(Asia/Seoul) 일일 편지 선정·배달(MVP_PLAN 6.1~6.5, ERD 8.3 의 시연용 핵심).
  *
- * <p>흐름: ① fence 잠금·cutoff 봉인 후 cutoff 시점 선정 설정을 읽는다(설정이 없으면 기본값으로 대체하지 않고 멈춘다)
- * ② 사용자마다 슬롯을 claim(짧은 커밋) ③ 트랜잭션 밖에서 후보 조회·점수·동률 AI 비교
+ * <p>흐름: ① fence 잠금·cutoff 봉인 후 수신 대상을 읽는다 ② 사용자마다 같은 writable READ COMMITTED
+ * 트랜잭션에서 fence를 봉인하고 설정·취향·후보를 읽으며 슬롯을 claim한다 ③ 커밋 뒤 점수·AI 동률 비교
  * ④ 짧은 최종 트랜잭션에서 계정·후보·claim·날짜를 다시 확인하고 배달 INSERT 와 DELIVERED 를 함께 커밋.
  *
  * <p>09:00 cron 외에 주기 실행(기본 5분)으로 서버가 늦게 떴거나 당일 재시도(RETRYABLE_ERROR·만료 lease)가 필요한
  * 슬롯을 같은 날 안에서만 다시 처리한다. cutoff 는 늦게 돌아도 09:00 로 고정이고, 09:00 이후 가입자·새 후보를
  * 당일 보충하지 않는다(사용자 조건 {@code mailbox_enabled_at <= cutoff}, 후보 조건 {@code available_at <= cutoff}).
  *
- * <p>아직 없는 것(후속): 한 트랜잭션 안에서 봉인 직후 후보까지 읽는 완전한 V11 reader, GET /v1/letters/today.
+ * <p>GET /v1/letters/today 는 별도 구현 대상이다.
  */
 @Slf4j
 @Service
@@ -114,29 +114,22 @@ public class DailySelectionJob {
             if (expired > 0) {
                 log.info("daily selection expired {} unfinished slot(s) before {}", expired, date);
             }
-            Optional<SelectionConfigHistory.Snapshot> config;
+            List<UUID> users;
             try {
-                config = readCommitted.execute(status -> {
+                users = readCommitted.execute(status -> {
                     barrier.lock();
                     barrier.sealCutoff(date);
-                    return configHistory.findAt(cutoff);
+                    return store.usersToProcess(date, cutoff);
                 });
             } catch (IllegalStateException e) {
                 // 예: DB 시계가 아직 09:00 전(앱·DB 시계 차이). 다음 주기에 다시 시도한다.
                 log.info("daily selection not ready for {}: {}", date, e.getMessage());
                 return 0;
             }
-            if (config == null || config.isEmpty()) {
-                if (!date.equals(warnedMissingConfig)) {
-                    log.warn("daily selection skipped: no selection_config_versions row effective at {} ({})", cutoff, date);
-                    warnedMissingConfig = date;
-                }
-                return 0;
-            }
             int processed = 0;
-            for (UUID userId : store.usersToProcess(date, cutoff)) {
+            for (UUID userId : users) {
                 try {
-                    processUser(userId, date, cutoff, config.get());
+                    processUser(userId, date, cutoff);
                     processed++;
                 } catch (RuntimeException e) {
                     log.warn("daily selection failed user={} date={} : {}", userId, date, e.getClass().getSimpleName());
@@ -151,41 +144,64 @@ public class DailySelectionJob {
         }
     }
 
-    void processUser(UUID userId, LocalDate date, Instant cutoff, SelectionConfigHistory.Snapshot config) {
-        Optional<PreferenceVersionSnapshot> atCutoff = preferences.findAt(userId, cutoff);
-        if (atCutoff.isEmpty()) {
-            return; // cutoff 이전 취향이 없는 계정(온보딩 미완료)은 슬롯을 만들지 않는다
+    void processUser(UUID userId, LocalDate date, Instant cutoff) {
+        SelectionInput input = readCommitted.execute(status -> {
+            barrier.lock();
+            barrier.sealCutoff(date);
+            Optional<SelectionConfigHistory.Snapshot> config = configHistory.findAt(cutoff);
+            if (config.isEmpty()) {
+                if (!date.equals(warnedMissingConfig)) {
+                    log.warn("daily selection skipped: no selection_config_versions row effective at {} ({})", cutoff, date);
+                    warnedMissingConfig = date;
+                }
+                return null;
+            }
+            Optional<PreferenceVersionSnapshot> atCutoff = preferences.findAt(userId, cutoff);
+            if (atCutoff.isEmpty()) {
+                return null; // cutoff 이전 취향이 없으면 슬롯을 만들지 않는다
+            }
+            Optional<DailySelectionStore.Claim> claimed = store.claim(userId, date, cutoff, atCutoff.get().versionId(),
+                    config.get().radiusMeters(), config.get().ruleVersion(), lease);
+            if (claimed.isEmpty()) {
+                return null; // 이미 끝났거나 다른 작업자가 처리 중
+            }
+            DailySelectionStore.Claim claim = claimed.get();
+            // 재시도에서도 처음 고정한 취향 버전과 설정을 유지한다.
+            Optional<PreferenceVersionSnapshot> pinned = preferences.findVersion(userId, claim.preferenceVersionId());
+            Optional<DailySelectionStore.Mailbox> mailbox = store.mailbox(userId);
+            if (pinned.isEmpty() || mailbox.isEmpty()) {
+                store.markRetryable(claim, pinned.isEmpty() ? "PREFERENCE_VERSION_MISSING" : "MAILBOX_MISSING");
+                return null;
+            }
+            return new SelectionInput(claim, pinned.get(), mailbox.get(), store.candidates(userId, cutoff));
+        });
+        if (input == null) {
+            return;
         }
-        Optional<DailySelectionStore.Claim> claimed = store.claim(userId, date, cutoff, atCutoff.get().versionId(),
-                config.radiusMeters(), config.ruleVersion(), lease);
-        if (claimed.isEmpty()) {
-            return; // 이미 끝났거나 다른 작업자가 처리 중
-        }
-        DailySelectionStore.Claim claim = claimed.get();
         try {
-            select(claim, cutoff);
+            select(input, cutoff);
         } catch (RuntimeException e) {
-            store.markRetryable(claim, "UNEXPECTED_" + e.getClass().getSimpleName());
+            store.markRetryable(input.claim(), "UNEXPECTED_" + e.getClass().getSimpleName());
             throw e;
         }
     }
 
-    private void select(DailySelectionStore.Claim claim, Instant cutoff) {
-        // 재시도에서도 슬롯에 고정된 취향 버전을 쓴다(복구 시점 최신값으로 대체하지 않음).
-        Optional<PreferenceVersionSnapshot> pinned = preferences.findVersion(claim.userId(), claim.preferenceVersionId());
-        Optional<DailySelectionStore.Mailbox> mailbox = store.mailbox(claim.userId());
-        if (pinned.isEmpty() || mailbox.isEmpty()) {
-            store.markRetryable(claim, pinned.isEmpty() ? "PREFERENCE_VERSION_MISSING" : "MAILBOX_MISSING");
-            return;
-        }
-        GeoPoint home = new GeoPoint(mailbox.get().lat(), mailbox.get().lng());
+    private record SelectionInput(DailySelectionStore.Claim claim, PreferenceVersionSnapshot preference,
+                                  DailySelectionStore.Mailbox mailbox,
+                                  List<DailySelectionStore.CandidateRow> candidates) {
+    }
+
+    private void select(SelectionInput input, Instant cutoff) {
+        DailySelectionStore.Claim claim = input.claim();
+        PreferenceVersionSnapshot pinned = input.preference();
+        GeoPoint home = new GeoPoint(input.mailbox().lat(), input.mailbox().lng());
         List<DailyPicker.Candidate> candidates = new ArrayList<>();
-        for (DailySelectionStore.CandidateRow row : store.candidates(claim.userId(), cutoff)) {
+        for (DailySelectionStore.CandidateRow row : input.candidates()) {
             if (DistanceMeters.between(home, new GeoPoint(row.lat(), row.lng())) <= claim.radiusMeters()) {
                 candidates.add(new DailyPicker.Candidate(row.memoryId(), row.content(), row.atmospheres()));
             }
         }
-        Optional<DailyPicker.Pick> pick = picker.pick(pinned.get().atmospheres(), pinned.get().description(),
+        Optional<DailyPicker.Pick> pick = picker.pick(pinned.atmospheres(), pinned.description(),
                 candidates, claim.randomSeed());
         if (pick.isEmpty()) {
             store.finishNoCandidate(claim);

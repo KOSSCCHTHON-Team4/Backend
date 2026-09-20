@@ -8,12 +8,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.PlatformTransactionManager;
 import team4.emotionmap.contracts.ai.ModerationPort;
 import team4.emotionmap.contracts.ai.ModerationRequest;
 import team4.emotionmap.contracts.ai.ModerationResult;
@@ -26,6 +27,7 @@ import team4.emotionmap.contracts.media.SanitizedImage;
 import team4.emotionmap.contracts.memory.ContentStatus;
 import team4.emotionmap.contracts.memory.DistributionType;
 import team4.emotionmap.contracts.memory.ModerationStatus;
+import team4.emotionmap.contracts.time.SelectionPublicationBarrier;
 import team4.emotionmap.memory.ai.AiProperties;
 
 /**
@@ -38,7 +40,6 @@ import team4.emotionmap.memory.ai.AiProperties;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class LetterModerationService {
 
     private final MemoryRepository memoryRepository;
@@ -49,6 +50,24 @@ public class LetterModerationService {
     private final AiProperties aiProperties;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final SelectionPublicationBarrier publicationBarrier;
+
+    public LetterModerationService(MemoryRepository memoryRepository, ModerationPort moderationPort,
+                                   LocalImageStore localImageStore, PlaceProfileService placeProfileService,
+                                   ApplicationEventPublisher events, AiProperties aiProperties, Clock clock,
+                                   PlatformTransactionManager transactionManager,
+                                   SelectionPublicationBarrier publicationBarrier) {
+        this.memoryRepository = memoryRepository;
+        this.moderationPort = moderationPort;
+        this.localImageStore = localImageStore;
+        this.placeProfileService = placeProfileService;
+        this.events = events;
+        this.aiProperties = aiProperties;
+        this.clock = clock;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        this.publicationBarrier = publicationBarrier;
+    }
 
     /** 요청 스레드에서 생성 커밋 직후 호출. 실패해도 생성 201 은 이미 확정이다(배달 성공 ≠ 생성 성공). */
     public void moderate(UUID memoryId) {
@@ -79,12 +98,13 @@ public class LetterModerationService {
     /** 상태 저장은 짧은 트랜잭션. 같은 빈 안의 자기 호출이라 애노테이션 프록시 대신 TransactionTemplate 을 쓴다. */
     void apply(UUID memoryId, ModerationStatus verdict) {
         transactionTemplate.executeWithoutResult(status -> {
+            publicationBarrier.lock();
             Memory memory = memoryRepository.findByIdForUpdate(memoryId).orElse(null);
             if (memory == null || memory.getDistributionType() != DistributionType.LETTER
                     || memory.getModerationStatus() == ModerationStatus.APPROVED) {
                 return; // 이미 승인됐으면 최초 시각을 건드리지 않는다.
             }
-            memory.applyModeration(verdict, clock.instant());
+            memory.applyModeration(verdict, publicationBarrier.publicationTime());
             log.info("moderation applied memory={} verdict={} availableAt={}", memoryId, verdict, memory.getAvailableAt());
             if (verdict == ModerationStatus.APPROVED) {
                 placeProfileService.recompute(memory.getPlaceId());
