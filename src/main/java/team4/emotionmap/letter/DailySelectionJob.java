@@ -1,0 +1,246 @@
+package team4.emotionmap.letter;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+import team4.emotionmap.account.User;
+import team4.emotionmap.account.UserRepository;
+import team4.emotionmap.contracts.account.PreferenceHistoryReader;
+import team4.emotionmap.contracts.account.PreferenceVersionSnapshot;
+import team4.emotionmap.contracts.ai.PreferenceTieBreakPort;
+import team4.emotionmap.contracts.config.SelectionConfigHistory;
+import team4.emotionmap.contracts.geo.DistanceMeters;
+import team4.emotionmap.contracts.geo.GeoPoint;
+import team4.emotionmap.contracts.time.SelectionPublicationBarrier;
+import team4.emotionmap.contracts.time.ServiceTime;
+import team4.emotionmap.memory.Memory;
+import team4.emotionmap.memory.MemoryRepository;
+
+/**
+ * B02 매일 09:00(Asia/Seoul) 일일 편지 선정·배달(MVP_PLAN 6.1~6.5, ERD 8.3 의 시연용 핵심).
+ *
+ * <p>흐름: ① fence 잠금·cutoff 봉인 후 cutoff 시점 선정 설정을 읽는다(설정이 없으면 기본값으로 대체하지 않고 멈춘다)
+ * ② 사용자마다 슬롯을 claim(짧은 커밋) ③ 트랜잭션 밖에서 후보 조회·점수·동률 AI 비교
+ * ④ 짧은 최종 트랜잭션에서 계정·후보·claim·날짜를 다시 확인하고 배달 INSERT 와 DELIVERED 를 함께 커밋.
+ *
+ * <p>09:00 cron 외에 주기 실행(기본 5분)으로 서버가 늦게 떴거나 당일 재시도(RETRYABLE_ERROR·만료 lease)가 필요한
+ * 슬롯을 같은 날 안에서만 다시 처리한다. cutoff 는 늦게 돌아도 09:00 로 고정이고, 09:00 이후 가입자·새 후보를
+ * 당일 보충하지 않는다(사용자 조건 {@code mailbox_enabled_at <= cutoff}, 후보 조건 {@code available_at <= cutoff}).
+ *
+ * <p>아직 없는 것(후속): 한 트랜잭션 안에서 봉인 직후 후보까지 읽는 완전한 V11 reader, GET /v1/letters/today.
+ */
+@Slf4j
+@Service
+public class DailySelectionJob {
+
+    private final DailySelectionStore store;
+    private final PreferenceHistoryReader preferences;
+    private final SelectionConfigHistory configHistory;
+    private final SelectionPublicationBarrier barrier;
+    private final UserRepository userRepository;
+    private final MemoryRepository memoryRepository;
+    private final DailyPicker picker;
+    private final TransactionTemplate readCommitted;
+    private final Clock clock;
+    private final boolean enabled;
+    private final Duration lease;
+    private final ReentrantLock running = new ReentrantLock();
+    private volatile LocalDate warnedMissingConfig;
+
+    public DailySelectionJob(DailySelectionStore store,
+                             PreferenceHistoryReader preferences,
+                             SelectionConfigHistory configHistory,
+                             SelectionPublicationBarrier barrier,
+                             UserRepository userRepository,
+                             MemoryRepository memoryRepository,
+                             PreferenceTieBreakPort tieBreak,
+                             PlatformTransactionManager transactionManager,
+                             Clock clock,
+                             @Value("${app.daily-selection.enabled:true}") boolean enabled,
+                             @Value("${app.daily-selection.lease:PT2M}") Duration lease,
+                             @Value("${app.daily-selection.tiebreak-timeout:PT15S}") Duration tieBreakTimeout) {
+        this.store = store;
+        this.preferences = preferences;
+        this.configHistory = configHistory;
+        this.barrier = barrier;
+        this.userRepository = userRepository;
+        this.memoryRepository = memoryRepository;
+        this.picker = new DailyPicker(tieBreak, tieBreakTimeout);
+        this.readCommitted = new TransactionTemplate(transactionManager);
+        this.readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        this.clock = clock;
+        this.enabled = enabled;
+        this.lease = lease;
+    }
+
+    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Seoul")
+    public void atCutoff() {
+        runToday();
+    }
+
+    /** 늦은 기동·당일 재시도용. 오늘 cutoff 이전이면 아무것도 하지 않는다. */
+    @Scheduled(fixedDelayString = "${app.daily-selection.catch-up-delay:PT5M}",
+            initialDelayString = "${app.daily-selection.initial-delay:PT1M}")
+    public void catchUp() {
+        runToday();
+    }
+
+    /** 오늘 서비스 날짜의 선정을 한 번 돈다. 같은 프로세스에서 겹쳐 돌지 않는다. 처리한 사용자 수를 돌려준다. */
+    public int runToday() {
+        if (!enabled || !running.tryLock()) {
+            return 0;
+        }
+        try {
+            Instant now = clock.instant();
+            LocalDate date = ServiceTime.serviceDate(now);
+            Instant cutoff = ServiceTime.cutoff(date);
+            if (now.isBefore(cutoff)) {
+                return 0;
+            }
+            int expired = store.expirePastSlots(date);
+            if (expired > 0) {
+                log.info("daily selection expired {} unfinished slot(s) before {}", expired, date);
+            }
+            Optional<SelectionConfigHistory.Snapshot> config;
+            try {
+                config = readCommitted.execute(status -> {
+                    barrier.lock();
+                    barrier.sealCutoff(date);
+                    return configHistory.findAt(cutoff);
+                });
+            } catch (IllegalStateException e) {
+                // 예: DB 시계가 아직 09:00 전(앱·DB 시계 차이). 다음 주기에 다시 시도한다.
+                log.info("daily selection not ready for {}: {}", date, e.getMessage());
+                return 0;
+            }
+            if (config == null || config.isEmpty()) {
+                if (!date.equals(warnedMissingConfig)) {
+                    log.warn("daily selection skipped: no selection_config_versions row effective at {} ({})", cutoff, date);
+                    warnedMissingConfig = date;
+                }
+                return 0;
+            }
+            int processed = 0;
+            for (UUID userId : store.usersToProcess(date, cutoff)) {
+                try {
+                    processUser(userId, date, cutoff, config.get());
+                    processed++;
+                } catch (RuntimeException e) {
+                    log.warn("daily selection failed user={} date={} : {}", userId, date, e.getClass().getSimpleName());
+                }
+            }
+            if (processed > 0) {
+                log.info("daily selection {} processed {} user(s)", date, processed);
+            }
+            return processed;
+        } finally {
+            running.unlock();
+        }
+    }
+
+    void processUser(UUID userId, LocalDate date, Instant cutoff, SelectionConfigHistory.Snapshot config) {
+        Optional<PreferenceVersionSnapshot> atCutoff = preferences.findAt(userId, cutoff);
+        if (atCutoff.isEmpty()) {
+            return; // cutoff 이전 취향이 없는 계정(온보딩 미완료)은 슬롯을 만들지 않는다
+        }
+        Optional<DailySelectionStore.Claim> claimed = store.claim(userId, date, cutoff, atCutoff.get().versionId(),
+                config.radiusMeters(), config.ruleVersion(), lease);
+        if (claimed.isEmpty()) {
+            return; // 이미 끝났거나 다른 작업자가 처리 중
+        }
+        DailySelectionStore.Claim claim = claimed.get();
+        try {
+            select(claim, cutoff);
+        } catch (RuntimeException e) {
+            store.markRetryable(claim, "UNEXPECTED_" + e.getClass().getSimpleName());
+            throw e;
+        }
+    }
+
+    private void select(DailySelectionStore.Claim claim, Instant cutoff) {
+        // 재시도에서도 슬롯에 고정된 취향 버전을 쓴다(복구 시점 최신값으로 대체하지 않음).
+        Optional<PreferenceVersionSnapshot> pinned = preferences.findVersion(claim.userId(), claim.preferenceVersionId());
+        Optional<DailySelectionStore.Mailbox> mailbox = store.mailbox(claim.userId());
+        if (pinned.isEmpty() || mailbox.isEmpty()) {
+            store.markRetryable(claim, pinned.isEmpty() ? "PREFERENCE_VERSION_MISSING" : "MAILBOX_MISSING");
+            return;
+        }
+        GeoPoint home = new GeoPoint(mailbox.get().lat(), mailbox.get().lng());
+        List<DailyPicker.Candidate> candidates = new ArrayList<>();
+        for (DailySelectionStore.CandidateRow row : store.candidates(claim.userId(), cutoff)) {
+            if (DistanceMeters.between(home, new GeoPoint(row.lat(), row.lng())) <= claim.radiusMeters()) {
+                candidates.add(new DailyPicker.Candidate(row.memoryId(), row.content(), row.atmospheres()));
+            }
+        }
+        Optional<DailyPicker.Pick> pick = picker.pick(pinned.get().atmospheres(), pinned.get().description(),
+                candidates, claim.randomSeed());
+        if (pick.isEmpty()) {
+            store.finishNoCandidate(claim);
+            return;
+        }
+        if ("atmosphere-v1".equals(claim.ruleVersion()) && pick.get().fixedScore() % 1.0 != 0.0) {
+            // v1 슬롯은 정수 점수만 저장할 수 있다(ck_daily_v1_fixed_score_integral). 연속 축은 atmosphere-v2 설정 필요.
+            store.markRetryable(claim, "RULE_V1_NON_INTEGRAL_SCORE");
+            return;
+        }
+        finish(claim, cutoff, pick.get());
+    }
+
+    /** 잠금 순서: 사용자 → 경험 → 슬롯 → 배달 (좋아요 흐름과 같은 순서). */
+    private void finish(DailySelectionStore.Claim claim, Instant cutoff, DailyPicker.Pick pick) {
+        readCommitted.executeWithoutResult(status -> {
+            User user = userRepository.findByIdForUpdate(claim.userId()).orElse(null);
+            if (user == null || !user.isActive()) {
+                store.skipAccess(claim);
+                return;
+            }
+            Memory memory = memoryRepository.findByIdForUpdate(pick.memoryId()).orElse(null);
+            if (!stillEligible(memory, user, claim, cutoff)) {
+                store.markRetryable(claim, "CANDIDATE_CHANGED"); // 다음 주기에 다시 계산
+                return;
+            }
+            if (!store.lockOwnedSlot(claim)) {
+                return; // claim 을 잃음(다른 작업자)
+            }
+            if (!store.stillServiceDate(claim.serviceDate())) {
+                status.setRollbackOnly(); // 자정을 넘김: 전날 배달을 만들지 않는다. 다음 실행에서 EXPIRED_ERROR
+                return;
+            }
+            if (store.deliveryExists(claim.userId(), claim.serviceDate(), pick.memoryId())) {
+                store.markRetryable(claim, "DELIVERY_CONFLICT");
+                return;
+            }
+            store.deliver(claim, pick);
+            log.info("daily selection delivered user={} date={} method={} candidates={} ties={}",
+                    claim.userId(), claim.serviceDate(), pick.method(), pick.candidateCount(), pick.topTieCount());
+        });
+    }
+
+    private static boolean stillEligible(Memory memory, User user, DailySelectionStore.Claim claim, Instant cutoff) {
+        if (memory == null || !memory.isDeliverable() || memory.getOwnerId().equals(user.getId())
+                || memory.getPlaceLat() == null || memory.getPlaceLng() == null
+                || user.getMailboxLat() == null || user.getMailboxLng() == null || user.getMailboxEnabledAt() == null) {
+            return false;
+        }
+        Instant availableAt = memory.getAvailableAt();
+        if (availableAt.isBefore(user.getMailboxEnabledAt()) || availableAt.isAfter(cutoff)) {
+            return false;
+        }
+        double distance = DistanceMeters.between(new GeoPoint(user.getMailboxLat(), user.getMailboxLng()),
+                new GeoPoint(memory.getPlaceLat(), memory.getPlaceLng()));
+        return distance <= claim.radiusMeters();
+    }
+}
