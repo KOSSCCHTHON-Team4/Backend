@@ -253,9 +253,9 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `nickname` | `text` | 가능 | — | 내부 계정 표시명. 수신자용 익명 API에는 포함하지 않음 |
 | `access_status` | `text` | 불가 | 기본 'PENDING' | 초대·접근 상태. 인증 성공과 별개 |
 | `app_role` | `text` | 불가 | 기본 'USER' | 일반 사용자/운영자 |
-| `mailbox_lat` | `double precision` | 가능 | — | 최초 설정한 수신 기준 위도 |
-| `mailbox_lng` | `double precision` | 가능 | — | 최초 설정한 수신 기준 경도 |
-| `mailbox_enabled_at` | `timestamptz` | 가능 | — | 유효한 온보딩 완료 및 수신 시작 시각 |
+| `mailbox_lat` | `double precision` | 가능 | — | 현재 수신 기준 위도. 온보딩 후 원자적 설정 변경으로 이동 가능 |
+| `mailbox_lng` | `double precision` | 가능 | — | 현재 수신 기준 경도. 온보딩 후 원자적 설정 변경으로 이동 가능 |
+| `mailbox_enabled_at` | `timestamptz` | 가능 | — | 현재 위치가 수신 후보에 적용되기 시작한 publication 시각. 실제 이동에서만 갱신 |
 | `created_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 행 생성 시각 |
 | `updated_at` | `timestamptz` | 불가 | 기본 clock_timestamp() | 서버가 쓰기 때 갱신. DEFAULT만으로 UPDATE 시 자동 변경되지는 않음 |
 
@@ -291,6 +291,9 @@ PostgreSQL의 CHECK는 NULL을 거절하는 기능이 아니므로 필수값에�
 | `stay_style` | `double precision` | 불가 | 유한 -1..1; v1은 -1/+1 | 오래 머물기 좋은 -1 / 잠깐 들르기 좋은 endpoint label |
 | `description` | `text` | 가능 | — | 선택 자연어 취향. 공백은 NULL로 정규화 |
 | `axis_definition_version` | `smallint` | 불가 | 기본 2; 1 또는 2 | 새 write는 2. v1 수치 no-op은 행과 버전을 보존 |
+| `mailbox_lat` | `double precision` | 불가 | 유한 -90..90 | 이 revision에 고정된 수신 기준 위도 |
+| `mailbox_lng` | `double precision` | 불가 | 유한 -180..180 | 이 revision에 고정된 수신 기준 경도 |
+| `mailbox_enabled_at` | `timestamptz` | 불가 | `<= effective_at` | 이 snapshot의 위치 epoch. 취향만 바뀌면 보존하고 실제 이동에서만 갱신 |
 
 
 ### 4.4 `places`
@@ -529,8 +532,9 @@ NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는
 
 | 값 | 의미 |
 |---|---|
-| users.mailbox_enabled_at | 위치와 최초 4축 입력이 유효하게 완료된 수신 시작 시각 |
+| users.mailbox_enabled_at | 현재 수신 위치가 적용되기 시작한 publication 시각. 실제 좌표 이동에서 갱신 |
 | preferences.effective_at | 서버가 설정 버전의 적용 기준으로 부여한 시각 |
+| preferences.mailbox_enabled_at | 해당 불변 버전에 고정된 위치 epoch. 취향만 바뀌면 이전 값을 보존 |
 | memories.available_at | 최초로 분류·안전·게시 준비가 완료되어 LETTER 후보가 된 시각 |
 | daily.service_date | Asia/Seoul의 업무 날짜 |
 | daily.cutoff_at | 그 날짜 오전 9시; 작업 지연 때 현재 시각으로 바꾸지 않음 |
@@ -541,7 +545,7 @@ NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는
 (service_date + time '09:00') AT TIME ZONE 'Asia/Seoul'
 ```
 
-같은 날짜의 실패 복구에서 후보는 `mailbox_enabled_at <= available_at <= cutoff_at`를 유지한다. 현재 삭제·숨김·접근 제한은 다시 검사한다. 이미 수신한 원문은 제외한다. '온보딩 전 작성, 온보딩 후 최초 승인'은 작성 시각이 아니라 최초 available_at에 따라 판단하는 구현안이다. 이 정의를 API·테스트와 통일한다.
+같은 날짜의 실패 복구에서는 cutoff 이전 최신 `user_preference_versions`의 `mailbox_enabled_at`·좌표를 고정해 `snapshot.mailbox_enabled_at <= available_at <= cutoff_at` 후보를 읽는다. 현재 사용자 위치를 다시 적용해 cutoff 뒤 이동을 오늘 슬롯에 섞지 않는다. 현재 계정 접근 상태와 경험 삭제·숨김·안전 상태는 최종 확정 전에 다시 검사하고, 이미 수신한 원문은 제외한다. '온보딩 전 작성, 온보딩 후 최초 승인'은 작성 시각이 아니라 최초 available_at에 따라 판단한다.
 
 예: 08:40 취향 v1 → 09:00 기준 → 10:00 취향 v2 → 11:00 서버 복구라면 v1을 사용한다. 당일 슬롯이 이미 있다면 그 FK를 그대로 재사용한다. 슬롯 생성 자체가 늦었다면 불변 이력에서 cutoff 이전 최신 버전을 찾는다.
 
@@ -568,13 +572,10 @@ DDL의 날짜 CHECK는 *저장된 시각*의 내부 일관성을 확인한다. �
 `지역·시간·권한·안전·미수신` 필터 → `4축 점수` → 최고점 그룹 → 선택 자연어 동률 비교 → 남은 동률 무작위 → 실제 수신 저장.
 
 ```text
-score = (crowd 같음 ? 1 : 0)
-      + (spatial 같음 ? 1 : 0)
-      + (company 같음 ? 1 : 0)
-      + (stay 같음 ? 1 : 0)
+score = sum(1 - abs(preferenceAxis - memoryAxis) / 2)  // 네 축, 0..4
 ```
 
-최소 점수는 없다. 카테고리는 후보 제외·가산점으로 넣지 않는다. 먼저 최종 1개를 고른 후 거리 검사하는 것이 아니라, **반경 안 적격 후보를 확정한 뒤 점수를 비교**한다.
+최소 점수는 없다. 네 축은 동일 가중치이며 정확히 같은 computed binary64 최고점끼리만 동률이다. 카테고리는 후보 제외·가산점으로 넣지 않는다. 먼저 최종 1개를 고른 후 거리 검사하는 것이 아니라, **반경 안 적격 후보를 확정한 뒤 점수를 비교**한다.
 
 이번 기본 DDL에는 PostGIS·pgvector가 필요 없다. 서버는 IUGG 평균 지구 반지름 6,371,008.8m를 사용하는 haversine 단일 함수로 미터 단위를 계산하고, 반경 포함은 반올림 없이 {@code distance <= radiusMetres}로 판정한다. 좌표를 단순히 빼거나 PostgreSQL point의 좌표 단위 거리를 미터라고 취급하지 않는다. 규모가 커져 PostGIS geography·GiST를 도입한다면 별도 결정·마이그레이션으로 진행한다. 실제 서비스 고정 반경 수치는 여전히 운영 결정 사항이다.
 
@@ -616,9 +617,9 @@ WHERE owner_id = :authenticated_user_id
 
 ### 8.1 온보딩·설정 변경
 
-온보딩: 인증·초대 검증 → 사용자 행 잠금 → 미설정 확인 → 위치·mailbox_enabled_at 설정 + 취향 version 1 INSERT → 함께 커밋. 두 개 중 하나만 성공한 완료 상태를 만들지 않는다.
+온보딩: 인증·초대 검증 → publication fence → 사용자 행 잠금 → 미설정 확인 → 위치·mailbox_enabled_at 설정 + 위치 snapshot을 포함한 취향 version 1 INSERT → 함께 커밋. 두 개 중 하나만 성공한 완료 상태를 만들지 않는다.
 
-수정: 사용자 행 잠금 → 현재 최종 revision 확인 → 네 축·선택 설명 검증 → revision+1 전체 스냅샷 INSERT → 사용자 갱신 시각 변경 → 커밋. 이전 버전을 UPDATE하지 않는다. 위치 컬럼은 이 경로에서 변경하지 않는다. 같은 시각 버전의 정렬은 revision으로 결정한다.
+수정: publication fence → 사용자 행 잠금 → 현재 최종 revision 확인 → 네 축·선택 설명·선택 좌표 pair 검증 → 실제 좌표 이동이면 현재 mailbox와 epoch 갱신 → revision+1 전체 snapshot INSERT → 커밋. 취향만 바꾸면 이전 위치 epoch를 보존하고, 동일 값 no-op은 새 revision이나 시각을 만들지 않는다. 이전 버전을 UPDATE하지 않으며 같은 시각 버전의 정렬은 revision으로 결정한다.
 
 수신자 선호가 경험의 분위기 분류를 덮어쓰는 동작은 없다.
 

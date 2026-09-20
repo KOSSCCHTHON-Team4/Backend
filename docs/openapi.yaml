@@ -1221,11 +1221,10 @@ paths:
   /v1/users/me/preferences:
     patch:
       operationId: updatePreferences
-      summary: 4축·자연어 취향 변경
+      summary: 4축·자연어 취향·수신 위치 변경
       tags:
       - Users
-      description: 4축·설명 전체와 현재 버전을 보낸다. 최신 revision이 다르면409. 정상 변경은 전체 새 불변 버전 INSERT. 같은 버전·같은 값은 새 버전 없이200.
-        위치 필드 제출은422 IMMUTABLE_FIELD. 오늘 확정된/09:00 컷오프 설정을 소급 교체하지 않는다.
+      description: 4축·설명 전체와 현재 버전을 보내며, 수신 위치를 바꿀 때만 mailboxLat·mailboxLng를 함께 보낸다. 최신 revision이 다르면409. 실제 변경은 위치 epoch를 포함한 전체 불변 버전을 INSERT하고 같은 값은 새 버전 없이200을 반환한다. legacy mailbox 객체는422 IMMUTABLE_FIELD이며, 오늘 cutoff 뒤 변경은 이미 확정된 선정을 소급 교체하지 않는다.
       x-contract-status: PROPOSED
       x-onboarding-required: true
       responses:
@@ -6389,12 +6388,24 @@ components:
         expectedPreferenceVersion:
           type: string
           pattern: ^[1-9][0-9]*$
+        mailboxLat:
+          anyOf:
+          - type: number
+            minimum: -90
+            maximum: 90
+          - type: 'null'
+        mailboxLng:
+          anyOf:
+          - type: number
+            minimum: -180
+            maximum: 180
+          - type: 'null'
       required:
       - atmospheres
       - preferenceDescription
       - expectedPreferenceVersion
       additionalProperties: false
-      description: 설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion은 동시 수정 방지 제안이며 stale revision은 no-op보다 먼저 거절한다. 현재 v1 행의 수치상 같은 요청은 행·revision·effectiveAt·축 버전을 보존하고, 실제 변경은 v2 행을 만든다. 위치/버전 적용 시각은 요청 불가.
+      description: 설정 하위자원의 전체 값을 제출하는 원자적 변경. expectedPreferenceVersion이 stale이면 no-op보다 먼저 거절한다. 위치를 바꿀 때 mailboxLat/mailboxLng를 함께 보내며 한쪽만 보내면422다. 생략·동일 좌표·취향만 변경은 현재 위치 epoch를 보존하고 실제 이동만 새 epoch를 기록한다. legacy mailbox 객체와 적용 시각은 요청 불가.
     AnalyzeRequest:
       type: object
       properties:
