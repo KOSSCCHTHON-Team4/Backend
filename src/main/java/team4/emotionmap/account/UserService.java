@@ -6,11 +6,13 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import team4.emotionmap.contracts.config.ServiceConfigSource;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
 import team4.emotionmap.contracts.error.ErrorCode;
+import team4.emotionmap.contracts.time.SelectionPublicationBarrier;
 import team4.emotionmap.contracts.validation.TextRules;
 import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
@@ -25,6 +27,7 @@ public class UserService {
     private final UserPreferenceVersionRepository preferenceRepository;
     private final AccountAccessService accountAccessService;
     private final ServiceConfigSource serviceConfig;
+    private final SelectionPublicationBarrier publicationBarrier;
 
     @Transactional(readOnly = true)
     public UserResponse getMe(UUID userId) {
@@ -32,8 +35,9 @@ public class UserService {
         return profile(user, preferenceRepository.findFirstByUserIdOrderByRevisionDesc(userId).orElse(null));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse completeOnboarding(UUID userId, OnboardingRequest request) {
+        publicationBarrier.lock();
         User user = lockedActiveUser(userId);
         String description = normalizeDescription(request.preferenceDescription());
         if (user.getMailboxEnabledAt() != null) {
@@ -46,15 +50,16 @@ public class UserService {
             }
             return profile(user, latestPreference(userId));
         }
-        Instant now = Instant.now();
+        Instant now = publicationBarrier.publicationTime();
         UserPreferenceVersion first = preferenceRepository.save(newPreference(
                 userId, 1L, now, request.atmospheres(), description));
         user.completeOnboarding(request.mailboxLat(), request.mailboxLng(), now);
         return profile(user, first);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse updatePreferences(UUID userId, PreferencesRequest request) {
+        publicationBarrier.lock();
         User user = lockedActiveUser(userId);
         if (user.getMailboxEnabledAt() == null) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ONBOARDING_REQUIRED");
@@ -67,7 +72,7 @@ public class UserService {
         if (samePreference(current, request.atmospheres(), description)) {
             return profile(user, current);
         }
-        Instant changedAt = Instant.now();
+        Instant changedAt = publicationBarrier.publicationTime();
         UserPreferenceVersion next = preferenceRepository.save(newPreference(userId,
                 Math.addExact(current.getRevision(), 1L), changedAt, request.atmospheres(), description));
         user.recordPreferenceChange(changedAt);
