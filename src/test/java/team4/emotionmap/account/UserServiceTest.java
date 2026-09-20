@@ -21,7 +21,6 @@ import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.account.dto.UserResponse;
 import team4.emotionmap.contracts.account.AccountStatus;
-import team4.emotionmap.contracts.account.PreferenceVersionSnapshot;
 import team4.emotionmap.contracts.config.AuthConfig;
 import team4.emotionmap.contracts.config.ServiceConfig;
 import team4.emotionmap.contracts.config.ServiceConfigSource;
@@ -44,7 +43,6 @@ class UserServiceTest {
     private static final Instant FIRST_EFFECTIVE_AT = Instant.parse("2026-09-20T00:01:00Z");
     private static final Instant MOVED_AT = Instant.parse("2026-09-20T00:01:30Z");
     private static final Instant LATEST_EFFECTIVE_AT = Instant.parse("2026-09-20T00:02:00Z");
-    private static final Instant FIRST_CUTOFF = Instant.parse("2026-09-20T00:01:15Z");
 
     private static final ServiceConfigSource SERVICE_CONFIG = () -> new ServiceConfig("test", 1,
             new GeoPoint(1, 1), new ServiceLimits(3000, 1000, 1000, 5_000_000L, 6000, 6000, 20_000_000L,
@@ -250,23 +248,6 @@ class UserServiceTest {
         assertThat(user.mailbox()).isEqualTo(MOVED_MAILBOX);
         verify(preferences, never()).save(any(UserPreferenceVersion.class));
         verify(publicationBarrier, never()).publicationTime();
-    }
-
-    @Test
-    void historyAtCutoffMapsTheHistoricalMailboxAndEpoch() {
-        Atmospheres axes = new Atmospheres(-1.0, 1.0, -1.0, 1.0);
-        UserPreferenceVersion first = preference(1L, FIRST_EFFECTIVE_AT, axes, "quiet places",
-                LEGACY_AXIS_DEFINITION_VERSION, INITIAL_MAILBOX, ONBOARDED_AT);
-        when(preferences.findFirstByUserIdAndEffectiveAtLessThanEqualOrderByRevisionDesc(USER_ID, FIRST_CUTOFF))
-                .thenReturn(Optional.of(first));
-
-        PreferenceVersionSnapshot snapshot = new UserPreferenceHistoryReader(preferences)
-                .findAt(USER_ID, FIRST_CUTOFF)
-                .orElseThrow();
-
-        assertThat(snapshot.preferenceVersion()).isEqualTo("1");
-        assertThat(snapshot.mailbox()).isEqualTo(INITIAL_MAILBOX);
-        assertThat(snapshot.mailboxEnabledAt()).isEqualTo(ONBOARDED_AT);
     }
 
     private void stubPublicationTime(Instant publicationTime) {

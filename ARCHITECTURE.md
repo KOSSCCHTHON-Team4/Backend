@@ -2,7 +2,7 @@
 
 Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data JPA · Flyway
 
-이 문서는 **현재 코드의 구조와 실행 방법**을 설명한다. 제품 요구는 [MVP_PLAN](docs/MVP_PLAN.md), 데이터 모델은 [ERD](docs/ERD.md), 전체 참여자 API 계약은 [API_SPEC](docs/API_SPEC.md)와 [OpenAPI](docs/openapi.yaml)를 참고한다. 최신 영속성 모델과 V11 공유 publication/config-history primitive는 구현됐고 실제 Spring/PostgreSQL에서 검증했지만, 계정·경험 producer와 정기 배달 worker·AI·전체 22개 API를 모두 구현한 것은 아니다.
+이 문서는 **현재 코드의 구조와 실행 방법**을 설명한다. 제품 요구는 [MVP_PLAN](docs/MVP_PLAN.md), 데이터 모델은 [ERD](docs/ERD.md), 전체 참여자 API 계약은 [API_SPEC](docs/API_SPEC.md)와 [OpenAPI](docs/openapi.yaml)를 참고한다. 최신 영속성 모델과 V11 publication/config-history primitive, 계정·경험 게시자와 일일 선정 worker의 cutoff 경계는 실제 Spring/PostgreSQL에서 검증했다. 전체 22개 API와 실제 외부 AI 품질·운영 도구까지 완성했다는 뜻은 아니다.
 
 ## 1. 확정된 공통 스택
 
@@ -44,6 +44,7 @@ Java 21 · Spring Boot 4.1 · Gradle Wrapper 9.0 · PostgreSQL 17 · Spring Data
 - 지도 Repository는 공유 DB에 대한 가시성 EXISTS 조건으로 조회한다. `place → memory → place` Java 순환을 만들지 않는다.
 - ArchUnit은 명시된 모듈 소속, 공개 계약 외 접근, 모듈 간 순환 의존을 검사한다.
 - `SelectionPublicationBarrier`는 작은 공유 DB 계약이다. 호출자의 같은 datasource writable READ COMMITTED transaction에만 참여하며, fence row lock을 업무 행 lock보다 먼저 얻는다. `publicationTime()`은 lock 뒤 DB `clock_timestamp()`와 sealed watermark로 결정하고 독립 commit이나 JVM 시계를 권위로 쓰지 않는다. 이것은 worker 자체가 아니며 platform adapter는 업무 Entity·Repository를 import하지 않는다.
+- 온보딩·취향 변경·안전 승인과 `DailySelectionJob`이 이 barrier를 사용한다. worker는 사용자별 fence transaction에서 cutoff 설정·취향·후보 조회와 claim을 끝내고 커밋한 뒤 점수·AI를 계산한다. `DailyPicker`는 정확히 같은 computed binary64 최고점만 동률로 취급한다.
 
 ## 3. 시스템 구성도
 

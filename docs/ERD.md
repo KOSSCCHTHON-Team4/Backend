@@ -545,7 +545,7 @@ NULL·타입·범위 CHECK가 API 계약의 모든 검증을 대체하지 않는
 
 예: 08:40 취향 v1 → 09:00 기준 → 10:00 취향 v2 → 11:00 서버 복구라면 v1을 사용한다. 당일 슬롯이 이미 있다면 그 FK를 그대로 재사용한다. 슬롯 생성 자체가 늦었다면 불변 이력에서 cutoff 이전 최신 버전을 찾는다.
 
-V11은 정확한 cutoff 경계에 공유 publication primitive를 제공한다. publisher는 fence를 다른 업무 행보다 먼저 잠그고 DB 시각으로 publication 시각을 정하며, 이미 seal된 cutoff보다 최소 1µs 뒤로만 게시할 수 있다. reader는 같은 writable READ COMMITTED transaction에서 fence를 seal한 뒤 다음 statement로 preference/config/candidate를 읽는다. 이 저장 경계만 구현됐고 계정·경험 producer와 selection worker는 아직 연결되지 않았다. timestamp 필드만으로 실제 커밋 시점을 자동 재현한다고 주장하지 않는다.
+V11은 정확한 cutoff 경계에 공유 publication primitive를 제공한다. `UserService`의 온보딩·취향 변경과 `LetterModerationService`의 안전 결과 저장은 fence를 다른 업무 행보다 먼저 잠그고 DB 시각으로 publication 시각을 정하며, 이미 seal된 cutoff보다 최소 1µs 뒤로만 게시한다. `DailySelectionJob`은 수신 대상 조회 전에 fence를 seal하고, 사용자별 writable READ COMMITTED transaction에서도 seal 뒤 설정·불변 취향·후보를 읽고 슬롯을 claim한다. 커밋 후 거리·점수·AI 동률 비교를 실행하므로 외부 모델 호출 중 fence를 잡지 않는다. timestamp 필드만으로 실제 커밋 시점을 자동 재현하는 것이 아니라 게시자와 reader의 공유 잠금으로 경계를 보장한다.
 
 ### 6.2 종료 상태와 날짜 경계
 
@@ -630,13 +630,13 @@ LETTER는 안전 승인 전에는 candidate 쿼리에서 제외한다. 첫 승�
 
 ### 8.3 매일 09:00의 선정
 
-**구현 경계:** 아래는 아직 연결되지 않은 selection worker의 제품 프로토콜이다. V11은 이를 위한 cutoff fence·설정 이력·점수 저장 primitive만 제공하며, 후보 선정·lease 회수·배달 orchestration이나 AI 성공을 구현·검증했다고 뜻하지 않는다.
+**구현 경계:** `DailySelectionJob`·`DailySelectionStore`·`DailyPicker`가 09:00 실행·당일 catch-up·claim·후보 선정·배달 확정을 구현한다. 온보딩·취향 변경·안전 승인과 reader는 V11 publication fence에 연결됐다. 로컬 PostgreSQL의 미커밋 게시 경합과 seal 이후 게시 제외를 검증했으며, 실제 외부 AI 품질·운영 설정 공급 도구·Today API의 완료를 의미하지 않는다.
 
-**1. 슬롯 구성.** 정시 cutoff와 수신 대상 사용자·불변 취향 버전을 해석한다. 지연 실행도 09:00을 사용하며 정시 이후 온보딩·새 후보는 제외한다. `daily_selections`를 INSERT하고 중복 PK면 기존 상태를 확인한다. 서비스 고정 반경은 작업의 radius_m으로 캡처한다.
+**1. 슬롯 구성.** fence를 seal한 뒤 수신 대상 사용자를 읽는다. 사용자별로 같은 writable READ COMMITTED transaction에서 fence를 seal하고 cutoff의 설정·불변 취향을 해석한다. 지연 실행도 09:00을 사용하며 정시 이후 온보딩·새 후보는 제외한다. `daily_selections`를 INSERT하고 중복 PK면 기존 상태를 확인한다. 서비스 고정 반경은 작업의 radius_m으로 캡처한다.
 
-**2. 작업 선점.** 미완료 슬롯에 claim_token·lease_expires_at·attempt_count를 기록하고 커밋한다. 유효한 lease가 있으면 다른 worker는 건너뛴다. lease가 지난 PROCESSING은 당일에만 새 토큰으로 인수한다. 단일 서버여도 서버 중단 후 PROCESSING이 영구 고착되지 않게 한다.
+**2. 작업 선점.** 미완료 슬롯에 claim_token·lease_expires_at·attempt_count를 기록하고 같은 fence transaction에서 고정 취향·후보까지 읽은 뒤 커밋한다. 유효한 lease가 있으면 다른 worker는 건너뛴다. lease가 지난 PROCESSING은 당일에만 새 토큰으로 인수한다. 단일 서버여도 서버 중단 후 PROCESSING이 영구 고착되지 않게 한다.
 
-**3. 후보·AI 계산.** 불변 프로필·cutoff로 조회하고 거리·점수를 계산한다. 최고점이 여러 개일 때만 자연어를 사용한다. 모델 호출 중 DB 행 잠금을 오래 잡지 않는다. 결과가 하위 점수·미제공 ID면 거절하고 오류 대체 규칙을 적용한다.
+**3. 후보·AI 계산.** 커밋된 읽기 결과로 거리·점수를 계산한다. computed binary64 최고점이 정확히 같은 후보가 여러 개일 때만 자연어를 사용하며 epsilon으로 낮은 점수를 동률에 넣지 않는다. 모델 호출 중 DB 행 잠금을 잡지 않는다. 결과가 하위 점수·미제공 ID면 거절하고 오류 대체 규칙을 적용한다.
 
 **4. 최종 짧은 트랜잭션.** 관련 사용자·원문·일일 슬롯의 잠금 순서를 일관되게 정한다. 계정 상태, 후보 상태, 자기 글 여부, 반경, 시간 범위, 이미 받은 여부, claim_token, 현재 KST 날짜를 재검사한다. 수신 INSERT와 daily DELIVERED 갱신을 함께 커밋한다. NO_CANDIDATE도 정상 종료로 확정한다. 후보가 중간 삭제됐다면 아직 성공 전의 미완료 작업으로 재계산하고, 이미 DELIVERED면 대체하지 않는다.
 
