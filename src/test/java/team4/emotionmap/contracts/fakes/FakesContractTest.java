@@ -39,8 +39,11 @@ class FakesContractTest {
     void findAtReturnsVersionEffectiveAtCutoffNotLatest() {
         InMemoryPreferenceHistoryReader reader = new InMemoryPreferenceHistoryReader();
         UUID user = DictionaryFixtures.userId(1);
-        PreferenceVersionSnapshot v1 = reader.append(user, new Atmospheres(-1, -1, -1, -1), "v1", kst("2026-09-19", 8, 40));
-        PreferenceVersionSnapshot v2 = reader.append(user, new Atmospheres(1, 1, 1, 1), null, kst("2026-09-19", 10, 0));
+        Instant mailboxEnabledAt = kst("2026-09-19", 8, 40);
+        PreferenceVersionSnapshot v1 = reader.append(user, new Atmospheres(-1, -1, -1, -1), "v1",
+                mailboxEnabledAt, DictionaryFixtures.DEMO_CENTER, mailboxEnabledAt);
+        PreferenceVersionSnapshot v2 = reader.append(user, new Atmospheres(1, 1, 1, 1), null,
+                kst("2026-09-19", 10, 0), DictionaryFixtures.DEMO_CENTER, mailboxEnabledAt);
 
         Instant cutoff = kst("2026-09-19", 9, 0);
         assertThat(reader.findAt(user, cutoff)).contains(v1);                 // 11:00 복구 시에도 09:00 은 v1

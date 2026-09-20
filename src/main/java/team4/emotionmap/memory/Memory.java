@@ -181,19 +181,22 @@ public class Memory {
     }
 
     /**
-     * 안전 검사 결과 반영(A07). APPROVED 면 최초 available_at 을 <b>한 번만</b> 정한다 — 재시도·운영 상태 변경으로
-     * 신규 글처럼 갱신하지 않는다. PRIVATE 는 available_at 을 갖지 않는다.
+     * 안전 검사 결과 반영(A07). APPROVED 면 최초 available_at 을 publication fence의 DB 논리 시각으로
+     * 한 번만 정한다. PRIVATE 는 available_at 을 갖지 않는다.
      */
-    public void applyModeration(ModerationStatus verdict, Instant now) {
+    public void applyModeration(ModerationStatus verdict, Instant publicationTime) {
         if (distributionType != DistributionType.LETTER) {
             throw new IllegalStateException("Only LETTER memories are moderated");
         }
         if (verdict == ModerationStatus.NOT_REQUIRED || verdict == ModerationStatus.PENDING) {
             throw new IllegalArgumentException("Not a final moderation verdict: " + verdict);
         }
+        if (verdict == ModerationStatus.APPROVED && availableAt == null && publicationTime == null) {
+            throw new IllegalArgumentException("Approved moderation requires a publication time");
+        }
         this.moderationStatus = verdict;
         if (verdict == ModerationStatus.APPROVED && availableAt == null) {
-            this.availableAt = now.isBefore(createdAt) ? createdAt : now;
+            this.availableAt = publicationTime;
         }
     }
 

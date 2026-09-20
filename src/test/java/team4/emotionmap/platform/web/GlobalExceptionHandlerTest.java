@@ -172,7 +172,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void mainImmutableFieldFailureSurvivesJacksonWrapping() throws Exception {
         mvc.perform(post("/probe/preferences").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"expectedPreferenceVersion":"1","preferenceDescription":"","mailboxLat":37.5,
+                        {"expectedPreferenceVersion":"1","preferenceDescription":"","mailbox":{"lat":37.5,"lng":127.0},
                          "atmospheres":{"CROWD_LEVEL":1,"SPATIAL_FEEL":1,"COMPANY_FIT":1,"STAY_STYLE":-1}}
                         """))
                 .andExpect(status().isUnprocessableContent())

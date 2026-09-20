@@ -5,23 +5,22 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import team4.emotionmap.memory.dto.MemoryPageResponse;
-/** URL은 장소 하위지만, 기억 목록의 조회 정책은 기억 모듈이 소유한다. */
+
 @RestController
-@RequestMapping("/v1/places/{id}/memories")
+@RequestMapping("/v1/bookmarks")
 @RequiredArgsConstructor
-public class PlaceMemoryController {
+public class BookmarkController {
 
     private final MemoryQueryService memoryQueryService;
 
     @GetMapping
-    public MemoryPageResponse memories(@AuthenticationPrincipal UUID userId, @PathVariable UUID id,
-                                       @RequestParam MultiValueMap<String, String> query) {
+    public MemoryPageResponse bookmarks(@AuthenticationPrincipal UUID userId,
+                                        @RequestParam MultiValueMap<String, String> query) {
         MemoryPageQueryParameters.PageRequest page = MemoryPageQueryParameters.page(query);
-        return memoryQueryService.forPlace(userId, id, page.cursor(), page.limit());
+        return memoryQueryService.bookmarks(userId, page.cursor(), page.limit());
     }
 }

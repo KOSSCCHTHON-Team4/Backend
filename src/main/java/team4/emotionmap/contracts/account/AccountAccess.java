@@ -11,7 +11,7 @@ import team4.emotionmap.contracts.geo.GeoPoint;
  * @param userId           내부 계정 ID
  * @param status           현재 접근 상태
  * @param mailboxEnabledAt 온보딩 완료·수신 시작 시각. 온보딩 전 null
- * @param mailbox          고정 수신 위치. 온보딩 전 null, 완료 후 변경 불가(불변 규칙 6)
+ * @param mailbox          현재 수신 위치. 온보딩 전 null, 온보딩 후 이동할 수 있음
  */
 public record AccountAccess(UUID userId, AccountStatus status, Instant mailboxEnabledAt, GeoPoint mailbox) {
 

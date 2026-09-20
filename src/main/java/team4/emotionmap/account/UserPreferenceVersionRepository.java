@@ -8,12 +8,12 @@ import org.springframework.data.repository.Repository;
 public interface UserPreferenceVersionRepository extends Repository<UserPreferenceVersion, UUID> {
     UserPreferenceVersion save(UserPreferenceVersion version);
 
-    Optional<UserPreferenceVersion> findById(UUID id);
+    Optional<UserPreferenceVersion> findByIdAndUserId(UUID id, UUID userId);
 
     Optional<UserPreferenceVersion> findByUserIdAndRevision(UUID userId, Long revision);
 
     Optional<UserPreferenceVersion> findFirstByUserIdOrderByRevisionDesc(UUID userId);
 
-    Optional<UserPreferenceVersion> findFirstByUserIdAndEffectiveAtLessThanEqualOrderByEffectiveAtDescRevisionDesc(
+    Optional<UserPreferenceVersion> findFirstByUserIdAndEffectiveAtLessThanEqualOrderByRevisionDesc(
             UUID userId, Instant cutoff);
 }

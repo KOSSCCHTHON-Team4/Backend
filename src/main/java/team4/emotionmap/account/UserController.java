@@ -14,7 +14,7 @@ import team4.emotionmap.account.dto.OnboardingRequest;
 import team4.emotionmap.account.dto.PreferencesRequest;
 import team4.emotionmap.account.dto.UserResponse;
 
-/** Authenticated account profile and immutable mailbox onboarding. */
+/** Authenticated account profile, onboarding, and mutable mailbox preferences. */
 @RestController
 @RequestMapping("/v1/users")
 @RequiredArgsConstructor

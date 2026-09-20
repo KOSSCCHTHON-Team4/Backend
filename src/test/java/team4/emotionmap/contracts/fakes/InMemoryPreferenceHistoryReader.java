@@ -12,6 +12,7 @@ import team4.emotionmap.contracts.account.PreferenceHistoryReader;
 import team4.emotionmap.contracts.account.PreferenceVersionSnapshot;
 import team4.emotionmap.contracts.dictionary.AtmosphereAxis;
 import team4.emotionmap.contracts.dictionary.Atmospheres;
+import team4.emotionmap.contracts.geo.GeoPoint;
 
 /**
  * 불변 취향 이력의 가짜 구현. {@link #append} 만 있고 수정·삭제는 없다(불변 규칙 6).
@@ -22,11 +23,12 @@ public final class InMemoryPreferenceHistoryReader implements PreferenceHistoryR
     private final Map<UUID, List<PreferenceVersionSnapshot>> versions = new ConcurrentHashMap<>();
 
     public synchronized PreferenceVersionSnapshot append(UUID userId, Atmospheres atmospheres, String description,
-                                                         Instant effectiveAt) {
+                                                         Instant effectiveAt, GeoPoint mailbox,
+                                                         Instant mailboxEnabledAt) {
         List<PreferenceVersionSnapshot> list = versions.computeIfAbsent(userId, k -> new ArrayList<>());
         long revision = list.isEmpty() ? 1 : list.get(list.size() - 1).revision() + 1;
         PreferenceVersionSnapshot snapshot = new PreferenceVersionSnapshot(UUID.randomUUID(), userId, revision,
-                effectiveAt, atmospheres, description, AtmosphereAxis.DEFINITION_VERSION);
+                effectiveAt, atmospheres, description, AtmosphereAxis.DEFINITION_VERSION, mailbox, mailboxEnabledAt);
         list.add(snapshot);
         return snapshot;
     }
